@@ -1,0 +1,731 @@
+#include "MotionGenerator.h"
+#include <signal.h>
+#include <fcntl.h>
+#include <termios.h>
+
+MotionGenerator* MotionGenerator::me = NULL;
+
+MotionGenerator::MotionGenerator(ros::NodeHandle &n, double frequency): _n(n), _loopRate(frequency), _dt(1 / frequency)
+{
+	me = this;
+	ROS_INFO_STREAM("The motion generator node is created at: " << _n.getNamespace() << " with freq: " << frequency << "Hz");
+}
+
+
+bool MotionGenerator::init() 
+{
+	// Variable initialization
+  _wRb.setConstant(0.0f);
+  _x.setConstant(0.0f);
+  _q.setConstant(0.0f);
+  _x0.setConstant(0.0f);
+
+  _qd.setConstant(0.0f);
+  _omegad.setConstant(0.0f);
+  _xd.setConstant(0.0f);
+  _vd.setConstant(0.0f);
+
+  _mouseVelocity.setConstant(0.0f);
+  _targetOffset.col(Target::A) << 0.0f, 0.0f, 0.0f;
+  _targetOffset.col(Target::B) << -0.32f, 0.0f, 0.0f;
+  _targetOffset.col(Target::C) << -0.16f,0.25f,0.0f;
+  _targetOffset.col(Target::D) << -0.16f,-0.25f,0.0f;
+  _perturbationOffset.setConstant(0.0f);
+  _motionDuration = 0.0f;
+  _minMotionDuration = 2.0f;
+  _maxJerkyMotionDuration = 2.0f;
+  _maxCleanMotionDuration = 12.0f;
+  _initDuration = 10.0f;
+  _pauseDuration = 0.2f;
+  _reachedTime = 0.0f;
+  _trialCount = 0;
+  _perturbationCount = 0;
+  _lastMouseEvent;
+  _firstRealPoseReceived = false;
+  _firstMouseEventReceived = false;
+  _stop = false;
+  _perturbation = false;
+  _useMouse = false;
+  _mouseInUse = false;
+
+	_state = State::INIT;
+	_previousTarget = Target::A;
+	_currentTarget = Target::B;
+
+	Eigen::Vector3f temp;
+	temp << 0.0f,0.0f,1.0f;
+	_motionDirection = _targetOffset.col(_currentTarget)-_targetOffset.col(_previousTarget);
+	_motionDirection.normalize();
+	_perturbationDirection = temp.cross(_motionDirection);
+	_perturbationDirection.normalize();
+
+	// Subscriber definitions
+	_subMouse= _n.subscribe("/mouse", 1, &MotionGenerator::updateMouseData, this, ros::TransportHints().reliable().tcpNoDelay());
+	_subRealPose = _n.subscribe("/lwr/ee_pose", 1, &MotionGenerator::updateRealPose, this, ros::TransportHints().reliable().tcpNoDelay());
+	_subRealTwist = _n.subscribe("/lwr/ee_vel", 1, &MotionGenerator::updateRealTwist, this, ros::TransportHints().reliable().tcpNoDelay());
+
+	// Publisher definitions
+	_pubDesiredTwist = _n.advertise<geometry_msgs::Twist>("/lwr/joint_controllers/passive_ds_command_vel", 1);
+	_pubDesiredOrientation = _n.advertise<geometry_msgs::Quaternion>("/lwr/joint_controllers/passive_ds_command_orient", 1);
+	
+	// Dynamic reconfigure definition
+	// _dynRecCallback = boost::bind(&MotionGenerator::dynamicReconfigureCallback, this, _1, _2);
+	// _dynRecServer.setCallback(_dynRecCallback);
+
+	// Open file to save data
+	_outputFile.open ("src/mouse_perturbation_robot/informationKUKA.txt");
+	
+	// Catch CTRL+C event with the callback provided
+	signal(SIGINT,MotionGenerator::stopNodeCallback);
+
+	// initArduino();
+
+	// Check if node OK
+	if (_n.ok()) 
+	{ 
+		// Wait for poses being published
+		ros::spinOnce();
+		ROS_INFO("The motion generator is ready.");
+		return true;
+	}
+	else 
+	{
+		ROS_ERROR("The ros node has a problem.");
+		return false;
+	}
+}
+
+void MotionGenerator::run()
+{
+	srand (time(NULL));
+	
+	// Initialize motion duration and initial time reference
+	_motionDuration = _minMotionDuration+(_maxCleanMotionDuration-_minMotionDuration)*((float)std::rand()/RAND_MAX);
+	_initTime = ros::Time::now().toSec();
+
+	while (!_stop) 
+	{
+		// Check if we received the robot pose and foot data
+		if(_firstRealPoseReceived && _firstMouseEventReceived)
+		{
+			// Compute control command
+			computeCommand();
+
+			// Log data
+			logData();
+
+			// Publish data to topics
+			publishData();
+		}
+		else
+		{
+			_initTime = ros::Time::now().toSec();
+		}
+
+		ros::spinOnce();
+
+		_loopRate.sleep();
+	}
+
+	// closeArduino();
+
+	// Send zero linear and angular velocity to stop the robot
+	_vd.setConstant(0.0f);
+	_omegad.setConstant(0.0f);
+	_qd = _q;
+
+	publishData();
+	ros::spinOnce();
+	_loopRate.sleep();
+
+  // Close file
+	_outputFile.close();
+
+  // Close ros
+	ros::shutdown();
+}
+
+
+void MotionGenerator::stopNodeCallback(int sig)
+{
+	me->_stop = true;
+}
+
+
+void  MotionGenerator::computeCommand()
+{
+  if(!_useMouse)
+  {
+
+    backAndForthMotion();
+  }
+  else
+  {
+    processMouseEvents();
+    multipleTargetsMotion();
+    
+  }
+}
+
+
+void MotionGenerator::backAndForthMotion()
+{
+	double currentTime = ros::Time::now().toSec();
+
+	Eigen::Vector3f gains, error;
+
+	switch (_state)
+	{
+		case State::INIT:
+		{
+			_motionDuration = _initDuration;
+		}
+		case State::CLEAN_MOTION:
+		{
+			_xd = _x0+_targetOffset.col(_currentTarget);
+
+			float distance = (_xd-_x).norm();
+			if(distance < TARGET_TOLERANCE)
+			{
+				_trialCount++;
+
+				_previousTarget = _currentTarget;
+				if (_currentTarget == Target::A)
+				{	
+					_currentTarget = Target::B;
+					// sendValueArduino(4);
+				}
+				else
+				{
+					_currentTarget = Target::A;
+					// sendValueArduino(2);
+				}
+
+				Eigen::Vector3f temp;
+				temp << 0.0f,0.0f,1.0f;
+				_motionDirection = _targetOffset.col(_currentTarget)-_targetOffset.col(_previousTarget);
+				_motionDirection.normalize();
+				_perturbationDirection = temp.cross(_motionDirection);
+				_perturbationDirection.normalize();
+
+				_reachedTime = ros::Time::now().toSec();
+				_state = State::PAUSE;
+			}
+
+			Eigen::Matrix3f B,L;
+			B.col(0) = _motionDirection;
+			B.col(1) = _perturbationDirection;
+			B.col(2) << 0.0f,0.0f,1.0f;
+			gains << 3, 10.0f, 30.0f;
+
+			error = _xd-_x;
+			L = gains.asDiagonal();
+			_vd = B*L*B.transpose()*error;
+
+			if(currentTime-_initTime > _motionDuration)
+			{
+				_perturbation = true;
+				_state = State::JERKY_MOTION;
+				_initTime = ros::Time::now().toSec();
+				_motionDuration = _minMotionDuration+(_maxJerkyMotionDuration-_minMotionDuration)*((float)std::rand()/RAND_MAX);
+				// sendValueArduino(1);
+			}
+			break;
+		}
+		case State::PAUSE:
+		{
+			_vd.setConstant(0.0f);
+
+			if(currentTime-_reachedTime>_pauseDuration)
+			{
+				_state = State::CLEAN_MOTION;
+			}
+			break;
+		}
+		case State::JERKY_MOTION:
+		{
+			_perturbationOffset += PERTURBATION_VELOCITY*(-1+2*(float)std::rand()/RAND_MAX)*_dt*_perturbationDirection;
+			if(_perturbationOffset.norm()>MAX_PERTURBATION_OFFSET)
+			{
+				_perturbationOffset *= MAX_PERTURBATION_OFFSET/_perturbationOffset.norm();
+			}
+			while(_perturbationOffset.norm()< MIN_PERTURBATION_OFFSET)
+			{
+				_perturbationOffset = MAX_PERTURBATION_OFFSET*(-1+2*(float)std::rand()/RAND_MAX)*_perturbationDirection;
+			}
+
+			_xd = _x+_perturbationOffset;
+
+			Eigen::Matrix3f B,L;
+			B.col(0) = _motionDirection;
+			B.col(1) = _perturbationDirection;
+			B.col(2) << 0.0f,0.0f,1.0f;
+			gains << 3, 10.0f, 30.0f;
+
+			error = _xd-_x;
+			L = gains.asDiagonal();
+			_vd = B*L*B.transpose()*error;
+
+			if(currentTime-_initTime > _motionDuration)
+			{
+				_perturbation = false;
+				_state = State::CLEAN_MOTION;
+				_initTime = ros::Time::now().toSec();
+				_motionDuration = _minMotionDuration+(_maxCleanMotionDuration-_minMotionDuration)*((float)std::rand()/RAND_MAX);
+				_perturbationCount++;
+				_perturbationOffset.setConstant(0.0f);
+				// sendValueArduino(0);
+			}
+			break;
+		}
+		default:
+		{
+			break;
+		}
+	}
+
+	if (_vd.norm()>0.3f)
+	{
+		_vd = _vd*0.3f/_vd.norm();
+	}
+
+	_qd << 0.0f, 0.0f, 1.0f, 0.0f;
+
+	std::cerr << "trialCount: " << _trialCount << " target: " << (int) (_currentTarget) << " perturbation: " << (int) (_perturbation) << " perturbationCount: " << _perturbationCount << std::endl;
+	std::cerr << "random offset: " << _perturbationOffset << " gains:  " << gains(0) << " error: " << error.norm() << std::endl;
+}
+
+
+void MotionGenerator::multipleTargetsMotion()
+{
+
+	double currentTime = ros::Time::now().toSec();
+
+	Eigen::Vector3f gains, error;
+
+	switch (_state)
+	{
+		case State::INIT:
+		{
+			_motionDuration = _initDuration;
+		}
+		case State::CLEAN_MOTION:
+		{
+			if(_mouseInUse)
+			{
+				if(fabs(_mouseVelocity(0))>fabs(_mouseVelocity(1)))
+				{
+					if(_mouseVelocity(0)>0.0f)
+					{
+						_currentTarget = Target::A;
+					}
+					else
+					{
+						_currentTarget = Target::B;
+					}
+				}
+				else
+				{
+					if(_mouseVelocity(1)>0.0f)
+					{
+						_currentTarget = Target::D;
+					}
+					else
+					{
+						_currentTarget = Target::C;
+					}
+				}
+
+				_xd = _x0+_targetOffset.col(_currentTarget);
+
+				float distance = (_xd-_x).norm();
+				if(distance < TARGET_TOLERANCE)
+				{
+					_trialCount++;
+
+					_previousTarget = _currentTarget;
+
+					_reachedTime = ros::Time::now().toSec();
+					_state = State::PAUSE;
+				}
+
+				if(_currentTarget == _previousTarget)
+				{
+					_motionDirection << 1.0f, 0.0f, 0.0f;
+					_perturbationDirection << 0.0f, 1.0f, 0.0f;
+				}
+				else
+				{
+					Eigen::Vector3f temp;
+					temp << 0.0f,0.0f,1.0f;
+					_motionDirection = _targetOffset.col(_currentTarget)-_targetOffset.col(_previousTarget);
+					_motionDirection.normalize();
+					_perturbationDirection = temp.cross(_motionDirection);
+					_perturbationDirection.normalize();
+				}
+
+				Eigen::Matrix3f B,L;
+				B.col(0) = _motionDirection;
+				B.col(1) = _perturbationDirection;
+				B.col(2) << 0.0f,0.0f,1.0f;
+				gains << 3, 10.0f, 30.0f;
+
+				error = _xd-_x;
+				L = gains.asDiagonal();
+				_vd = B*L*B.transpose()*error;
+			}
+			else
+			{
+				_vd.setConstant(0.0f);
+			}
+			if(currentTime-_initTime > _motionDuration)
+			{
+        _perturbation = true;
+				_state = State::JERKY_MOTION;
+				_initTime = ros::Time::now().toSec();
+				_motionDuration = _minMotionDuration+(_maxJerkyMotionDuration-_minMotionDuration)*((float)std::rand()/RAND_MAX);
+				// sendValueArduino(1);
+			}
+			break;
+		}
+		case State::PAUSE:
+		{
+			_vd.setConstant(0.0f);
+
+			if(currentTime-_reachedTime>_pauseDuration)
+			{
+				_state = State::CLEAN_MOTION;
+			}
+			break;
+		}
+		case State::JERKY_MOTION:
+    {
+      if(_currentTarget == _previousTarget)
+      {
+        _motionDirection << 1.0f, 0.0f, 0.0f;
+        _perturbationDirection << 0.0f, 1.0f, 0.0f;
+      }
+      else
+      {
+        Eigen::Vector3f temp;
+        temp << 0.0f,0.0f,1.0f;
+        _motionDirection = _targetOffset.col(_currentTarget)-_targetOffset.col(_previousTarget);
+        _motionDirection.normalize();
+        _perturbationDirection = temp.cross(_motionDirection);
+        _perturbationDirection.normalize();
+      }
+
+      _perturbationOffset += PERTURBATION_VELOCITY*(-1+2*(float)std::rand()/RAND_MAX)*_dt*_perturbationDirection;
+      if(_perturbationOffset.norm()>MAX_PERTURBATION_OFFSET)
+      {
+        _perturbationOffset *= MAX_PERTURBATION_OFFSET/_perturbationOffset.norm();
+      }
+      while(_perturbationOffset.norm()< MIN_PERTURBATION_OFFSET)
+      {
+        _perturbationOffset = MAX_PERTURBATION_OFFSET*(-1+2*(float)std::rand()/RAND_MAX)*_perturbationDirection;
+      }
+
+
+			_xd = _x+_perturbationOffset;
+
+			Eigen::Matrix3f B,L;
+			B.col(0) = _motionDirection;
+			B.col(1) = _perturbationDirection;
+			B.col(2) << 0.0f,0.0f,1.0f;
+			gains << 0.0f, 10.0f, 30.0f;
+
+			error = _xd-_x;
+			L = gains.asDiagonal();
+			_vd = B*L*B.transpose()*error;
+			
+			if(currentTime-_initTime > _motionDuration)
+			{
+        _perturbation = false;
+				_state = State::CLEAN_MOTION;
+				_initTime = ros::Time::now().toSec();
+				_motionDuration = _minMotionDuration+(_maxCleanMotionDuration-_minMotionDuration)*((float)std::rand()/RAND_MAX);
+				_perturbationCount++;
+				_perturbationOffset.setConstant(0.0f);
+				// sendValueArduino(0);
+			}
+			break;
+		}
+		default:
+		{
+			break;
+		}
+	}
+
+	if (_vd.norm()>0.3f)
+	{
+		_vd = _vd*0.3f/_vd.norm();
+	}
+
+	_qd << 0.0f, 0.0f, 1.0f, 0.0f;
+
+  // std::cerr << "trialCount: " << _trialCount << " target: " << (int) (_currentTarget) << " perturbation: " << (int) (_perturbation) << " perturbationCount: " << _perturbationCount << std::endl;
+  std::cerr << "Current target: " << (int) (_currentTarget) << " Previous target: " << (int) (_previousTarget) << " perturbation: " << (int) (_perturbation) << " mouse in use: "<< _mouseInUse << std::endl;
+  std::cerr << " perturbationDirection: " << _perturbationDirection.transpose() << std::endl;
+  // std::cerr << "random offset: " << _perturbationOffset << " gains:  " << gains(0) << " error: " << error.norm() << std::endl;
+
+}
+
+
+void MotionGenerator::processMouseEvents()
+{
+  uint8_t event;
+  int buttonState, relX, relY, relWheel;
+  float filteredRelX = 0.0f, filteredRelY = 0.0f;
+  bool newEvent = false;
+
+  // If new event received update last event
+  // Otherwhise keep the last one
+  if(_msgMouse.event > 0)
+  {
+    _lastMouseEvent = _msgMouse.event;
+    buttonState = _msgMouse.buttonState;
+    relX = _msgMouse.relX;
+    relY = _msgMouse.relY;
+    relWheel = _msgMouse.relWheel;
+    filteredRelX = _msgMouse.filteredRelX;
+    filteredRelY = _msgMouse.filteredRelY;
+    newEvent = true;
+  }
+  else
+  {
+    buttonState = 0;
+    relX = 0;
+    relY = 0;
+    relWheel = 0;
+    filteredRelX = 0;
+    filteredRelY = 0;
+    newEvent = false;
+  }
+
+  event = _lastMouseEvent;
+
+  // Process corresponding event
+  switch(event)
+  {
+    case mouse_perturbation_robot::MouseMsg::FM_CURSOR:
+    {
+      processCursorEvent(filteredRelX,filteredRelY,newEvent);
+      break;
+    }
+    default:
+    {
+      break;
+    }
+  }
+}
+
+
+void MotionGenerator::processCursorEvent(float relX, float relY, bool newEvent)
+{
+  if(!newEvent) // No new event received
+  {
+    _mouseVelocity.setConstant(0.0f);
+  }
+  else
+  {
+  	_mouseInUse = false;
+    if(fabs(relX)>MIN_XY_REL)
+    {
+      _mouseVelocity(0) = relX;
+      _mouseInUse = true;
+    }
+    else
+    {
+    	_mouseVelocity(0) = 0.0f;
+    }
+
+    if(fabs(relY)>MIN_XY_REL)
+    {
+      _mouseVelocity(1) = relY;
+      _mouseInUse = true;
+    }
+    else
+    {
+    	_mouseVelocity(1) = 0.0f;
+    } 
+  }
+}
+
+
+void MotionGenerator::publishData()
+{
+	_mutex.lock();
+
+	// Publish desired twist (passive ds controller)
+	_msgDesiredTwist.linear.x  = _vd(0);
+	_msgDesiredTwist.linear.y  = _vd(1);
+	_msgDesiredTwist.linear.z  = _vd(2);
+	_msgDesiredTwist.angular.x = _omegad(0);
+	_msgDesiredTwist.angular.y = _omegad(1);
+	_msgDesiredTwist.angular.z = _omegad(2);
+
+	_pubDesiredTwist.publish(_msgDesiredTwist);
+
+	// Publish desired orientation
+	_msgDesiredOrientation.w = _qd(0);
+	_msgDesiredOrientation.x = _qd(1);
+	_msgDesiredOrientation.y = _qd(2);
+	_msgDesiredOrientation.z = _qd(3);
+
+	_pubDesiredOrientation.publish(_msgDesiredOrientation);
+
+	_mutex.unlock();
+}
+
+
+void MotionGenerator::logData()
+{
+	_outputFile << ros::Time::now() << " " << _x(0) << " " << _x(1) << " " << _x(2) << " " << (int)(_currentTarget) << " " << (int) (_perturbation) << " " << _trialCount << " " << _perturbationCount << std::endl;
+}
+
+
+void MotionGenerator::updateRealPose(const geometry_msgs::Pose::ConstPtr& msg)
+{
+	_msgRealPose = *msg;
+
+	// Update end effecotr pose (position+orientation)
+	_x << _msgRealPose.position.x, _msgRealPose.position.y, _msgRealPose.position.z;
+	_q << _msgRealPose.orientation.w, _msgRealPose.orientation.x, _msgRealPose.orientation.y, _msgRealPose.orientation.z;
+  _wRb = quaternionToRotationMatrix(_q);
+
+	if(!_firstRealPoseReceived)
+	{
+		_firstRealPoseReceived = true;
+		_xd = _x;
+		_qd = _q;
+		_x0 = _xd;
+		_vd.setConstant(0.0f);
+	}
+}
+
+
+void MotionGenerator::updateRealTwist(const geometry_msgs::Twist::ConstPtr& msg)
+{
+	_v << msg->linear.x, msg->linear.y, msg->linear.z;
+}
+
+
+void MotionGenerator::updateMouseData(const mouse_perturbation_robot::MouseMsg::ConstPtr& msg)
+{
+  _msgMouse = *msg;
+
+  if(!_firstMouseEventReceived && _msgMouse.event > 0)
+  {
+    _firstMouseEventReceived = true;
+  }
+}
+
+
+Eigen::Matrix3f MotionGenerator::quaternionToRotationMatrix(Eigen::Vector4f q)
+{
+  Eigen::Matrix3f R;
+
+  float q0 = q(0);
+  float q1 = q(1);
+  float q2 = q(2);
+  float q3 = q(3);
+
+  R(0,0) = q0*q0+q1*q1-q2*q2-q3*q3;
+  R(1,0) = 2.0f*(q1*q2+q0*q3);
+  R(2,0) = 2.0f*(q1*q3-q0*q2);
+
+  R(0,1) = 2.0f*(q1*q2-q0*q3);
+  R(1,1) = q0*q0-q1*q1+q2*q2-q3*q3;
+  R(2,1) = 2.0f*(q2*q3+q0*q1);
+
+  R(0,2) = 2.0f*(q1*q3+q0*q2);
+  R(1,2) = 2.0f*(q2*q3-q0*q1);
+  R(2,2) = q0*q0-q1*q1-q2*q2+q3*q3;  
+
+  return R;
+}
+
+
+// void MotionGenerator::dynamicReconfigureCallback(foot_surgical_robot::footIsometricController_paramsConfig &config, uint32_t level)
+// {
+// 	ROS_INFO("Reconfigure request. Updatig the parameters ...");
+
+// 	_convergenceRate = config.convergenceRate;
+// 	_linearVelocityLimit = config.linearVelocityLimit;
+// 	_angularVelocityLimit = config.angularVelocityLimit;
+// 	_threeTranslationMode = config.threeTranslationMode;
+// 	_oneTranslationMode = config.oneTranslationMode;
+// 	_rcmMode = config.rcmMode;
+// 	_rcmLinearVelocityGain = config.rcmLinearVelocityGain;
+// 	_rcmAngularVelocityGain = config.rcmAngularVelocityGain;
+// 	_rcmDistanceGain = config.rcmDistanceGain;
+// 	_rcmMinimumDistance = config.rcmMinimumDistance;
+// }
+
+
+void MotionGenerator::closeArduino() 
+{
+  close(farduino);
+}
+
+
+void MotionGenerator::initArduino()
+{
+  struct termios toptions;
+
+  farduino = open("//dev//ttyACM0", O_RDWR | O_NONBLOCK );
+
+  if (farduino == -1)
+  {
+    perror("serialport_init: Unable to open port ");
+  }
+
+  if (tcgetattr(farduino, &toptions) < 0)
+  {
+    perror("serialport_init: Couldn't get term attributes");
+  }
+     
+  cfsetispeed(&toptions, B115200);
+  cfsetospeed(&toptions, B115200);
+
+  // 8N1
+  toptions.c_cflag &= ~PARENB;
+  toptions.c_cflag &= ~CSTOPB;
+  toptions.c_cflag &= ~CSIZE;
+  toptions.c_cflag |= CS8;
+  // No flow control
+  toptions.c_cflag &= ~CRTSCTS;
+
+  toptions.c_cflag |= CREAD | CLOCAL;  // turn on READ & ignore ctrl lines
+  toptions.c_iflag &= ~(IXON | IXOFF | IXANY); // turn off s/w flow ctrl
+
+  toptions.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG); // make raw
+  toptions.c_oflag &= ~OPOST; // make raw
+
+  toptions.c_cc[VMIN]  = 0;
+  toptions.c_cc[VTIME] = 0;
+  //toptions.c_cc[VTIME] = 20;
+
+  tcsetattr(farduino, TCSANOW, &toptions);
+  if( tcsetattr(farduino, TCSAFLUSH, &toptions) < 0)
+  {
+    perror("init_serialport: Couldn't set term attributes");
+  }
+}
+
+
+void MotionGenerator::sendValueArduino(uint8_t value)
+{
+  write(farduino,&value,1);
+  std::cout << "Arduino message " << (int)value << std::endl;
+  if (value>0)
+  {
+    trigger_begin = ros::Time::now();
+    trigger_raised = true;
+  }
+  else
+  {
+    trigger_raised = false;
+  }
+}
+
