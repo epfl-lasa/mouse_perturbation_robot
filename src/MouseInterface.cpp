@@ -34,7 +34,7 @@ bool MouseInterface::init(std::string eventPath)
   _relReceived = false;
 
   // Initialize foot mouse message
-  _mouseMessage.event = mouse_perturbation_robot::MouseMsg::FM_NONE;
+  _mouseMessage.event = mouse_perturbation_robot::MouseMsg::M_NONE;
   _mouseMessage.buttonState = 0;
   _mouseMessage.relX = 0;
   _mouseMessage.relY = 0;
@@ -93,7 +93,7 @@ void MouseInterface::publishData()
     _synReceived = false;
     _relReceived = false;
 
-    if(_mouseMessage.event == mouse_perturbation_robot::MouseMsg::FM_CURSOR)
+    if(_mouseMessage.event == mouse_perturbation_robot::MouseMsg::M_CURSOR)
     {
       // Update windows for moving average filtering
       if(_winX.size()>_windowSize)
@@ -206,19 +206,19 @@ void MouseInterface::readFootMouse()
         // Get KEY event code
         if(_ie.code == BTN_RIGHT)
         {
-          _mouseMessage.event = mouse_perturbation_robot::MouseMsg::FM_RIGHT_CLICK;
+          _mouseMessage.event = mouse_perturbation_robot::MouseMsg::M_RIGHT_CLICK;
         }
         else if(_ie.code == BTN_LEFT)
         {
-          _mouseMessage.event = mouse_perturbation_robot::MouseMsg::FM_LEFT_CLICK;
+          _mouseMessage.event = mouse_perturbation_robot::MouseMsg::M_LEFT_CLICK;
         }
         else if(_ie.code == KEY_KPMINUS)
         {
-          _mouseMessage.event = mouse_perturbation_robot::MouseMsg::FM_BTN_B;
+          _mouseMessage.event = mouse_perturbation_robot::MouseMsg::M_BTN_B;
         }
         else if(_ie.code == KEY_KPPLUS)
         {
-          _mouseMessage.event = mouse_perturbation_robot::MouseMsg::FM_BTN_A;
+          _mouseMessage.event = mouse_perturbation_robot::MouseMsg::M_BTN_A;
         }
 
         _mouseMessage.buttonState = _ie.value;
@@ -232,7 +232,7 @@ void MouseInterface::readFootMouse()
         // Get REL event code   
         if(_ie.code == REL_X)
         {
-          _mouseMessage.event = mouse_perturbation_robot::MouseMsg::FM_CURSOR;
+          _mouseMessage.event = mouse_perturbation_robot::MouseMsg::M_CURSOR;
           _mouseMessage.relX = _ie.value;
           _mouseMessage.relY = 0;
 
@@ -244,7 +244,7 @@ void MouseInterface::readFootMouse()
         }
         else if(_ie.code == REL_Y)
         {
-          _mouseMessage.event = mouse_perturbation_robot::MouseMsg::FM_CURSOR;
+          _mouseMessage.event = mouse_perturbation_robot::MouseMsg::M_CURSOR;
           _mouseMessage.relY = _ie.value;
 
           if(!_relReceived)
@@ -255,7 +255,7 @@ void MouseInterface::readFootMouse()
         }
         else if(_ie.code == REL_Z)
         {
-          _mouseMessage.event = mouse_perturbation_robot::MouseMsg::FM_CURSOR;
+          _mouseMessage.event = mouse_perturbation_robot::MouseMsg::M_CURSOR;
           _mouseMessage.relZ = _ie.value;
           if(!_relReceived)
           {
@@ -266,7 +266,7 @@ void MouseInterface::readFootMouse()
         }
         else if(_ie.code == REL_WHEEL)
         {
-          _mouseMessage.event = mouse_perturbation_robot::MouseMsg::FM_WHEEL;
+          _mouseMessage.event = mouse_perturbation_robot::MouseMsg::M_WHEEL;
           _mouseMessage.relWheel = _ie.value;
         }
 
@@ -287,7 +287,7 @@ void MouseInterface::readFootMouse()
   else // No events happened
   {
     _synReceived = true;
-    _mouseMessage.event = mouse_perturbation_robot::MouseMsg::FM_NONE;
+    _mouseMessage.event = mouse_perturbation_robot::MouseMsg::M_NONE;
   }
 
   // std::cerr << (int) _ie.type << " " << (int) _ie.code << " " << (int) _ie.value << std::endl;

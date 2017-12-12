@@ -16,21 +16,26 @@
 #include <rosserial_mbed/Adc.h>
 #include "MouseInterface.h"
 
-#define MAX_XY_REL 350
-#define MIN_XY_REL 200
-#define PERTURBATION_VELOCITY 15.0f
-#define MAX_PERTURBATION_OFFSET 0.1f
-#define MIN_PERTURBATION_OFFSET 0.05f
-#define TARGET_TOLERANCE 0.05f
-#define NB_TARGETS 4
-// #define 
+#define MAX_XY_REL 350                    // Max mouse velocity [-]
+#define MIN_XY_REL 200                    // Min mouse velocity used as threshold [-]
+#define PERTURBATION_VELOCITY 15.05f      // PErturbation velocity
+#define MAX_PERTURBATION_OFFSET 0.1f      // Max perturnation offset [m]
+#define MIN_PERTURBATION_OFFSET 0.05f     // Min perturbation offset [m]
+#define TARGET_TOLERANCE 0.05f            // Tolerance radius for reaching a target [m]
+#define NB_TARGETS 4                      // Number of targets [-]
 
 class MotionGenerator 
 {
 	private:
 
-
+    // State phase enum
+    // INIT: Initial phase where the user get used to what a clean motion is
+    // CLEAN_MOTION: Clean motion phase
+    // PAUSE: Phase reached when a target is reached to slow down the robot
+    // JERKY_MOTION: PErturbation phase
     enum State {INIT = 0, CLEAN_MOTION = 1, PAUSE = 2 , JERKY_MOTION = 3}; 
+    // Target enum
+    // There is four targets available. Only A and B are used for the back and forth motion
     enum Target {A = 0, B = 1, C = 2, D = 3};
 
 		// ROS variables
@@ -65,31 +70,32 @@ class MotionGenerator
     Eigen::Vector3f _omegad;    // Desired angular velocity [rad/s] (3x1)
 
     // Motion variables
-    Eigen::Vector2f _mouseVelocity;
-    Eigen::Matrix<float,3,NB_TARGETS> _targetOffset;
-    Eigen::Vector3f _perturbationOffset;
-    Eigen::Vector3f _perturbationDirection;
-    Eigen::Vector3f _motionDirection;
-    float _mouseOffset;
-    double _initTime;
-    double _reachedTime;
-    double _pauseDuration;
-    double _motionDuration;
-    double _minMotionDuration;
-    double _maxCleanMotionDuration;
-    double _maxJerkyMotionDuration;
-    double _initDuration;
-    uint32_t _trialCount;
-    uint32_t _perturbationCount;
-    uint8_t _lastMouseEvent;           // Last foot mouse event
+    Eigen::Vector3f _xp;                              // Last position in clean motion [m] (3x1)
+    Eigen::Vector2f _mouseVelocity;                   // Mouse velocity X,Y data [-]
+    Eigen::Matrix<float,3,NB_TARGETS> _targetOffset;  // Position offsets of the targets with respect to initial position [m] (3*NB_TARGETS)
+    Eigen::Vector3f _perturbationOffset;              // Perturbation offset [m] (3x1)
+    Eigen::Vector3f _perturbationDirection;           // Direction of the perturbation offset (3x1)
+    Eigen::Vector3f _motionDirection;                 // Direction of motion (3x1)
+    double _initTime;                                 // Initial time for each phase [s]
+    double _reachedTime;                              // Time when reaching a target [s]        
+    double _phaseDuration;                            // Duration of a phase [s]  
+    double _pauseDuration;                            // Duration of the pause after reaching a target [s]
+    double _minCleanMotionDuration;                   // Min duration of the clean motion phase [s]
+    double _maxCleanMotionDuration;                   // Max duration of the clean motion phase [s]
+    double _jerkyMotionDuration;                      // Duration of the jerky motion phase [s]
+    double _initDuration;                             // Duration of the initial phase [s]
+    uint32_t _trialCount;                             // Number of times a target was reached [-]
+    uint32_t _perturbationCount;                      // Number of perturbation phases accomplished [-]
+    uint8_t _lastMouseEvent;                          // Last mouse event
 
     //Booleans
-    bool _firstRealPoseReceived;  // Monitor the first robot pose update
-    bool _firstMouseEventReceived;
-    bool _stop;
-    bool _perturbation;
-    bool _useMouse;
-    bool _mouseInUse;
+    bool _firstRealPoseReceived;      // Monitor the first robot pose update
+    bool _firstMouseEventReceived;    // Monitor the first mouse event recevied
+    bool _stop;                       // Monitor CTRL+C event
+    bool _perturbation;               // Monitor the execution of a perturbation phase
+    bool _mouseControlledMotion;      // Monitor the use of mouse controlled motion
+    bool _mouseInUse;                 // Monitor if the mouse is in use
+    bool _useArduino;                 // Monitor the use of the Arduino
 
     // Arduino related variables
     int farduino;
@@ -98,12 +104,11 @@ class MotionGenerator
     
     // Other variables
     static MotionGenerator* me;   // Pointer on the instance
-    std::mutex _mutex;
-    std::ofstream _outputFile;
-    State _state;
-    Target _currentTarget;
-    Target _previousTarget;
-    Eigen::Vector3f _xi;
+    std::mutex _mutex;            // Mutex variable
+    std::ofstream _outputFile;    // File used to lig data
+    State _state;                 // Current state phase
+    Target _currentTarget;        // Current target
+    Target _previousTarget;       // Previous target
 
   public:
     // Class constructor
@@ -122,13 +127,16 @@ class MotionGenerator
     // Compute command to be sent to passive ds controller
     void computeCommand();
 
+    // Generate back and forth motion
     void backAndForthMotion();
 
-    void multipleTargetsMotion();
+    // Generate motion between multiple targets based on mouse input
+    void mouseControlledMotion();
 
     // Process mouse events
     void processMouseEvents();
 
+    // Process cursor events
     void processCursorEvent(float relX, float relY, bool newEvent);
     
     // Publish data to topics
@@ -137,21 +145,27 @@ class MotionGenerator
     // Publish data to topics
     void logData();
 
-    // Callback to update real robot pose
-    void updateRealTwist(const geometry_msgs::Twist::ConstPtr& msg);
-    
+    // Callback to update the real robot twist
+    void updateRealTwist(const geometry_msgs::Twist::ConstPtr& msg);    
+
+    // Callback to update the real robot pose
     void updateRealPose(const geometry_msgs::Pose::ConstPtr& msg);
 
+    // Callback to update mouse data
     void updateMouseData(const mouse_perturbation_robot::MouseMsg::ConstPtr& msg);
 
     // Convert quaternion to rotation matrix
     Eigen::Matrix3f quaternionToRotationMatrix(Eigen::Vector4f q);
     
+    // Initialize arduino communication
     void initArduino();
 
+    // Close arduino communication
     void closeArduino();
 
+    // Send value to arduino
     void sendValueArduino(uint8_t value);
+
 		// Dynamic reconfigure callback
 		// void dynamicReconfigureCallback(foot_surgical_robot::footIsometricController_paramsConfig &config, uint32_t level);
 };

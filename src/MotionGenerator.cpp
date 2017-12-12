@@ -25,28 +25,31 @@ bool MotionGenerator::init()
   _xd.setConstant(0.0f);
   _vd.setConstant(0.0f);
 
+  _xp.setConstant(0.0f);
   _mouseVelocity.setConstant(0.0f);
   _targetOffset.col(Target::A) << 0.0f, 0.0f, 0.0f;
   _targetOffset.col(Target::B) << -0.32f, 0.0f, 0.0f;
   _targetOffset.col(Target::C) << -0.16f,0.25f,0.0f;
   _targetOffset.col(Target::D) << -0.16f,-0.25f,0.0f;
   _perturbationOffset.setConstant(0.0f);
-  _motionDuration = 0.0f;
-  _minMotionDuration = 2.0f;
-  _maxJerkyMotionDuration = 2.0f;
+  _phaseDuration = 0.0f;
+  _minCleanMotionDuration = 5.0f;
   _maxCleanMotionDuration = 12.0f;
+  _jerkyMotionDuration = 2.0f;
   _initDuration = 10.0f;
   _pauseDuration = 0.2f;
   _reachedTime = 0.0f;
   _trialCount = 0;
   _perturbationCount = 0;
-  _lastMouseEvent;
+  _lastMouseEvent = mouse_perturbation_robot::MouseMsg::M_NONE;
+
   _firstRealPoseReceived = false;
   _firstMouseEventReceived = false;
   _stop = false;
   _perturbation = false;
-  _useMouse = false;
+  _mouseControlledMotion = false;
   _mouseInUse = false;
+  _useArduino = false;
 
 	_state = State::INIT;
 	_previousTarget = Target::A;
@@ -78,7 +81,11 @@ bool MotionGenerator::init()
 	// Catch CTRL+C event with the callback provided
 	signal(SIGINT,MotionGenerator::stopNodeCallback);
 
-	// initArduino();
+	// Initialize arduino
+	if(_useArduino)
+	{
+		initArduino();
+	}
 
 	// Check if node OK
 	if (_n.ok()) 
@@ -100,7 +107,7 @@ void MotionGenerator::run()
 	srand (time(NULL));
 	
 	// Initialize motion duration and initial time reference
-	_motionDuration = _minMotionDuration+(_maxCleanMotionDuration-_minMotionDuration)*((float)std::rand()/RAND_MAX);
+	_phaseDuration = _minCleanMotionDuration+(_maxCleanMotionDuration-_minCleanMotionDuration)*((float)std::rand()/RAND_MAX);
 	_initTime = ros::Time::now().toSec();
 
 	while (!_stop) 
@@ -127,7 +134,11 @@ void MotionGenerator::run()
 		_loopRate.sleep();
 	}
 
-	// closeArduino();
+	// Close arduino communication
+	if(_useArduino)
+	{
+		closeArduino();
+	}
 
 	// Send zero linear and angular velocity to stop the robot
 	_vd.setConstant(0.0f);
@@ -154,53 +165,67 @@ void MotionGenerator::stopNodeCallback(int sig)
 
 void  MotionGenerator::computeCommand()
 {
-  if(!_useMouse)
+  if(!_mouseControlledMotion)
   {
-
+  	// Back and forth motion
     backAndForthMotion();
   }
   else
   {
+  	// Mouse controlled motion
     processMouseEvents();
-    multipleTargetsMotion();
-    
+    mouseControlledMotion(); 
   }
 }
 
 
 void MotionGenerator::backAndForthMotion()
 {
+	// Update current time
 	double currentTime = ros::Time::now().toSec();
 
 	Eigen::Vector3f gains, error;
+	gains.setConstant(0.0f);
+	error.setConstant(0.0f);
 
 	switch (_state)
 	{
 		case State::INIT:
 		{
-			_motionDuration = _initDuration;
+			_phaseDuration = _initDuration;
 		}
 		case State::CLEAN_MOTION:
 		{
+			// Compute desired target position
 			_xd = _x0+_targetOffset.col(_currentTarget);
 
+			// Compute distance to target
 			float distance = (_xd-_x).norm();
 			if(distance < TARGET_TOLERANCE)
 			{
+				// Target is reached 
 				_trialCount++;
-
 				_previousTarget = _currentTarget;
+
+				// Update target
 				if (_currentTarget == Target::A)
 				{	
 					_currentTarget = Target::B;
-					// sendValueArduino(4);
+					if(_useArduino)
+					{
+						sendValueArduino(4);
+					}
 				}
 				else
 				{
 					_currentTarget = Target::A;
-					// sendValueArduino(2);
+					if(_useArduino)
+					{
+						sendValueArduino(2);
+					}
 				}
 
+				// Update motion and perturbation direction
 				Eigen::Vector3f temp;
 				temp << 0.0f,0.0f,1.0f;
 				_motionDirection = _targetOffset.col(_currentTarget)-_targetOffset.col(_previousTarget);
@@ -208,42 +233,56 @@ void MotionGenerator::backAndForthMotion()
 				_perturbationDirection = temp.cross(_motionDirection);
 				_perturbationDirection.normalize();
 
+				// Go in pause state
 				_reachedTime = ros::Time::now().toSec();
 				_state = State::PAUSE;
 			}
 
+			// Compute the gain matrix M = B*L*B'
+			// B is an orthogonal matrix containing the directions corrected
+			// L is a diagonal matrix defining the correction gains along the directions
 			Eigen::Matrix3f B,L;
 			B.col(0) = _motionDirection;
 			B.col(1) = _perturbationDirection;
 			B.col(2) << 0.0f,0.0f,1.0f;
 			gains << 3, 10.0f, 30.0f;
 
+			// Compute error and desired velocity
 			error = _xd-_x;
 			L = gains.asDiagonal();
 			_vd = B*L*B.transpose()*error;
 
-			if(currentTime-_initTime > _motionDuration)
+			// Check for end of clean motion phase
+			if(currentTime-_initTime > _phaseDuration)
 			{
+				// Go to jerky motion phase
 				_perturbation = true;
 				_state = State::JERKY_MOTION;
 				_initTime = ros::Time::now().toSec();
-				_motionDuration = _minMotionDuration+(_maxJerkyMotionDuration-_minMotionDuration)*((float)std::rand()/RAND_MAX);
-				// sendValueArduino(1);
+				_phaseDuration = _jerkyMotionDuration;
+				if(_useArduino)
+				{
+					sendValueArduino(1);
+				}
 			}
 			break;
 		}
 		case State::PAUSE:
 		{
+			// Send zero velocity
 			_vd.setConstant(0.0f);
 
+			// Check for end of pause
 			if(currentTime-_reachedTime>_pauseDuration)
 			{
+				// Go back to clean motion phase
 				_state = State::CLEAN_MOTION;
 			}
 			break;
 		}
 		case State::JERKY_MOTION:
 		{
+			// Update perturbation offset based on perturbation velocity + apply saturation
 			_perturbationOffset += PERTURBATION_VELOCITY*(-1+2*(float)std::rand()/RAND_MAX)*_dt*_perturbationDirection;
 			if(_perturbationOffset.norm()>MAX_PERTURBATION_OFFSET)
 			{
@@ -254,27 +293,36 @@ void MotionGenerator::backAndForthMotion()
 				_perturbationOffset = MAX_PERTURBATION_OFFSET*(-1+2*(float)std::rand()/RAND_MAX)*_perturbationDirection;
 			}
 
+			// Compute desired position by considering perturbation offset
 			_xd = _x+_perturbationOffset;
 
+			// Compute the gain matrix M = B*L*B'
+			// The gain along the motion direction is set to zero to stay in place 
+			// The gain along the z axis is kept to keep the height
 			Eigen::Matrix3f B,L;
 			B.col(0) = _motionDirection;
 			B.col(1) = _perturbationDirection;
 			B.col(2) << 0.0f,0.0f,1.0f;
-			gains << 3, 10.0f, 30.0f;
+			gains << 0, 10.0f, 30.0f;
 
 			error = _xd-_x;
 			L = gains.asDiagonal();
 			_vd = B*L*B.transpose()*error;
 
-			if(currentTime-_initTime > _motionDuration)
+			// Check for end of jerky motion phase
+			if(currentTime-_initTime > _phaseDuration)
 			{
+				// Update perturbation count + go to clean motion phase
+				_perturbationCount++;
+				_perturbationOffset.setConstant(0.0f);
 				_perturbation = false;
 				_state = State::CLEAN_MOTION;
 				_initTime = ros::Time::now().toSec();
-				_motionDuration = _minMotionDuration+(_maxCleanMotionDuration-_minMotionDuration)*((float)std::rand()/RAND_MAX);
-				_perturbationCount++;
-				_perturbationOffset.setConstant(0.0f);
-				// sendValueArduino(0);
+				_phaseDuration = _minCleanMotionDuration+(_maxCleanMotionDuration-_minCleanMotionDuration)*((float)std::rand()/RAND_MAX);
+				if(_useArduino)
+				{
+					sendValueArduino(0);
+				}
 			}
 			break;
 		}
@@ -284,35 +332,45 @@ void MotionGenerator::backAndForthMotion()
 		}
 	}
 
+	// Bound desired velocity
 	if (_vd.norm()>0.3f)
 	{
 		_vd = _vd*0.3f/_vd.norm();
 	}
 
+	// Desired quaternion to have the end effector looking down
 	_qd << 0.0f, 0.0f, 1.0f, 0.0f;
 
 	std::cerr << "trialCount: " << _trialCount << " target: " << (int) (_currentTarget) << " perturbation: " << (int) (_perturbation) << " perturbationCount: " << _perturbationCount << std::endl;
-	std::cerr << "random offset: " << _perturbationOffset << " gains:  " << gains(0) << " error: " << error.norm() << std::endl;
 }
 
 
-void MotionGenerator::multipleTargetsMotion()
+void MotionGenerator::mouseControlledMotion()
 {
-
+	// Update current time
 	double currentTime = ros::Time::now().toSec();
 
 	Eigen::Vector3f gains, error;
+	gains.setConstant(0.0f);
+	error.setConstant(0.0f);
+
+	Target temporaryTarget;
 
 	switch (_state)
 	{
 		case State::INIT:
 		{
-			_motionDuration = _initDuration;
+			_phaseDuration = _initDuration;
 		}
 		case State::CLEAN_MOTION:
 		{
+			// Check if mouse is in use
 			if(_mouseInUse)
 			{
+				// Save current target
+				temporaryTarget = _currentTarget;
+
+				// Update target from mouse input
 				if(fabs(_mouseVelocity(0))>fabs(_mouseVelocity(1)))
 				{
 					if(_mouseVelocity(0)>0.0f)
@@ -336,26 +394,12 @@ void MotionGenerator::multipleTargetsMotion()
 					}
 				}
 
-				_xd = _x0+_targetOffset.col(_currentTarget);
-
-				float distance = (_xd-_x).norm();
-				if(distance < TARGET_TOLERANCE)
+				// If new target, updates previous one and compte new motion and perturbation direction
+				if(_currentTarget != temporaryTarget)
 				{
-					_trialCount++;
-
-					_previousTarget = _currentTarget;
-
-					_reachedTime = ros::Time::now().toSec();
-					_state = State::PAUSE;
-				}
-
-				if(_currentTarget == _previousTarget)
-				{
-					_motionDirection << 1.0f, 0.0f, 0.0f;
-					_perturbationDirection << 0.0f, 1.0f, 0.0f;
-				}
-				else
-				{
+					_previousTarget = temporaryTarget;
+					
+					// Update motion and perturbation direction
 					Eigen::Vector3f temp;
 					temp << 0.0f,0.0f,1.0f;
 					_motionDirection = _targetOffset.col(_currentTarget)-_targetOffset.col(_previousTarget);
@@ -364,27 +408,64 @@ void MotionGenerator::multipleTargetsMotion()
 					_perturbationDirection.normalize();
 				}
 
+				// Compute desired target position
+				_xd = _x0+_targetOffset.col(_currentTarget);
+
+				// Compute distance to target
+				float distance = (_xd-_x).norm();
+				if(distance < TARGET_TOLERANCE)
+				{
+					// Target is reached 
+					_trialCount++;
+					_previousTarget = _currentTarget;
+
+					// Update target
+					_reachedTime = ros::Time::now().toSec();
+					_state = State::PAUSE;
+				}
+
+				// Compute the gain matrix M = B*L*B'
+				// B is an orthogonal matrix containing the directions corrected
+				// L is a diagonal matrix defining the correction gains along the directions
 				Eigen::Matrix3f B,L;
 				B.col(0) = _motionDirection;
 				B.col(1) = _perturbationDirection;
 				B.col(2) << 0.0f,0.0f,1.0f;
 				gains << 3, 10.0f, 30.0f;
 
+				// Compute error and desired velocity
 				error = _xd-_x;
 				L = gains.asDiagonal();
 				_vd = B*L*B.transpose()*error;
+				_xp = _x;
 			}
 			else
 			{
-				_vd.setConstant(0.0f);
+				// Track the last position where the mouse was in use
+				Eigen::Matrix3f L;
+				gains << 3, 3, 3;
+				error = _xp-_x;
+				L = gains.asDiagonal();
+				_vd = L*error;
+
 			}
-			if(currentTime-_initTime > _motionDuration)
+
+			// Check for end of clean motion phase
+			if(currentTime-_initTime > _phaseDuration && _v.norm()> 1.0e-2f)
 			{
+				// Go to jerky motion phase
         _perturbation = true;
 				_state = State::JERKY_MOTION;
 				_initTime = ros::Time::now().toSec();
-				_motionDuration = _minMotionDuration+(_maxJerkyMotionDuration-_minMotionDuration)*((float)std::rand()/RAND_MAX);
-				// sendValueArduino(1);
+				_phaseDuration = _jerkyMotionDuration;			
+				if(_useArduino)
+				{
+					sendValueArduino(1);
+				}
+			}
+			else if(currentTime-_initTime > _phaseDuration)
+			{
+				_initTime = ros::Time::now().toSec();
 			}
 			break;
 		}
@@ -392,29 +473,17 @@ void MotionGenerator::multipleTargetsMotion()
 		{
 			_vd.setConstant(0.0f);
 
+			// Check for end of pause
 			if(currentTime-_reachedTime>_pauseDuration)
 			{
+				// Go back to clean motion phase
 				_state = State::CLEAN_MOTION;
 			}
 			break;
 		}
 		case State::JERKY_MOTION:
     {
-      if(_currentTarget == _previousTarget)
-      {
-        _motionDirection << 1.0f, 0.0f, 0.0f;
-        _perturbationDirection << 0.0f, 1.0f, 0.0f;
-      }
-      else
-      {
-        Eigen::Vector3f temp;
-        temp << 0.0f,0.0f,1.0f;
-        _motionDirection = _targetOffset.col(_currentTarget)-_targetOffset.col(_previousTarget);
-        _motionDirection.normalize();
-        _perturbationDirection = temp.cross(_motionDirection);
-        _perturbationDirection.normalize();
-      }
-
+			// Update perturbation offset based on perturbation velocity + apply saturation
       _perturbationOffset += PERTURBATION_VELOCITY*(-1+2*(float)std::rand()/RAND_MAX)*_dt*_perturbationDirection;
       if(_perturbationOffset.norm()>MAX_PERTURBATION_OFFSET)
       {
@@ -425,9 +494,12 @@ void MotionGenerator::multipleTargetsMotion()
         _perturbationOffset = MAX_PERTURBATION_OFFSET*(-1+2*(float)std::rand()/RAND_MAX)*_perturbationDirection;
       }
 
-
+			// Compute desired position by considering perturbation offset
 			_xd = _x+_perturbationOffset;
 
+			// Compute the gain matrix M = B*L*B'
+			// The gain along the motion direction is set to zero to stay in place 
+			// The gain along the z axis is kept to keep the height
 			Eigen::Matrix3f B,L;
 			B.col(0) = _motionDirection;
 			B.col(1) = _perturbationDirection;
@@ -437,16 +509,21 @@ void MotionGenerator::multipleTargetsMotion()
 			error = _xd-_x;
 			L = gains.asDiagonal();
 			_vd = B*L*B.transpose()*error;
-			
-			if(currentTime-_initTime > _motionDuration)
+
+			// Check for end of jerky motion phase
+			if(currentTime-_initTime > _phaseDuration)
 			{
+				// Update perturbation count + go to clean motion phase
+				_perturbationCount++;
         _perturbation = false;
+				_perturbationOffset.setConstant(0.0f);
 				_state = State::CLEAN_MOTION;
 				_initTime = ros::Time::now().toSec();
-				_motionDuration = _minMotionDuration+(_maxCleanMotionDuration-_minMotionDuration)*((float)std::rand()/RAND_MAX);
-				_perturbationCount++;
-				_perturbationOffset.setConstant(0.0f);
-				// sendValueArduino(0);
+				_phaseDuration = 10+(20-10)*((float)std::rand()/RAND_MAX);
+				if(_useArduino)
+				{
+					sendValueArduino(0);
+				}
 			}
 			break;
 		}
@@ -456,18 +533,17 @@ void MotionGenerator::multipleTargetsMotion()
 		}
 	}
 
+	// Bound desired velocity
 	if (_vd.norm()>0.3f)
 	{
 		_vd = _vd*0.3f/_vd.norm();
 	}
 
+	// Desired quaternion to have the end effector looking down
 	_qd << 0.0f, 0.0f, 1.0f, 0.0f;
 
-  // std::cerr << "trialCount: " << _trialCount << " target: " << (int) (_currentTarget) << " perturbation: " << (int) (_perturbation) << " perturbationCount: " << _perturbationCount << std::endl;
   std::cerr << "Current target: " << (int) (_currentTarget) << " Previous target: " << (int) (_previousTarget) << " perturbation: " << (int) (_perturbation) << " mouse in use: "<< _mouseInUse << std::endl;
-  std::cerr << " perturbationDirection: " << _perturbationDirection.transpose() << std::endl;
-  // std::cerr << "random offset: " << _perturbationOffset << " gains:  " << gains(0) << " error: " << error.norm() << std::endl;
-
+  std::cerr << " perturbationDirection: " << _perturbationDirection.transpose() << " speed: " << _v.norm() <<std::endl;
 }
 
 
@@ -507,7 +583,7 @@ void MotionGenerator::processMouseEvents()
   // Process corresponding event
   switch(event)
   {
-    case mouse_perturbation_robot::MouseMsg::FM_CURSOR:
+    case mouse_perturbation_robot::MouseMsg::M_CURSOR:
     {
       processCursorEvent(filteredRelX,filteredRelY,newEvent);
       break;
@@ -529,6 +605,8 @@ void MotionGenerator::processCursorEvent(float relX, float relY, bool newEvent)
   else
   {
   	_mouseInUse = false;
+  	// If absolute value higher than min mouse velocity threshold, the mouse is in use,
+  	// otherwise mouse velocity is set to zero
     if(fabs(relX)>MIN_XY_REL)
     {
       _mouseVelocity(0) = relX;
@@ -599,6 +677,7 @@ void MotionGenerator::updateRealPose(const geometry_msgs::Pose::ConstPtr& msg)
 		_xd = _x;
 		_qd = _q;
 		_x0 = _xd;
+		_xp = _x;
 		_vd.setConstant(0.0f);
 	}
 }
