@@ -3,6 +3,7 @@
 
 #include <vector>
 #include "Eigen/Eigen"
+#include "ros/ros.h"
 
 struct Obstacle
 {
@@ -16,12 +17,16 @@ class DSObstacleAvoidance
 	private:
 
 		Obstacle _obs;
-    	Eigen::Matrix3f _modulationMatrix;
+		Eigen::Vector3f _modulatedVel;
+    	Eigen::Matrix3f _modulationMatrix, _rotationMatrix, _basisMatrix;
+    	double _gamma;
 
 	public:
 
 		DSObstacleAvoidance(Obstacle obs);
 
-		obsModulationEllipsoid(Eigen::Vector3f x, Eigen::Vector3f xd, bool bContour);
+		void obsModulationEllipsoid(Eigen::Vector3f x, Eigen::Vector3f xd, bool bContour);
+
+		void computeBasisMatrix(Eigen::Vector3f x);
 
 };
