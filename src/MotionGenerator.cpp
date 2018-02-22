@@ -28,7 +28,7 @@ bool MotionGenerator::init()
   _xp.setConstant(0.0f);
   _mouseVelocity.setConstant(0.0f);
   _targetOffset.col(Target::A) << 0.0f, 0.0f, 0.0f;
-  _targetOffset.col(Target::B) << -0.32f, 0.0f, 0.0f;
+  _targetOffset.col(Target::B) << 0.0f, 0.7f, 0.0f;
   _targetOffset.col(Target::C) << -0.16f,0.25f,0.0f;
   _targetOffset.col(Target::D) << -0.16f,-0.25f,0.0f;
   _perturbationOffset.setConstant(0.0f);
@@ -113,7 +113,7 @@ void MotionGenerator::run()
 	while (!_stop) 
 	{
 		// Check if we received the robot pose and foot data
-		if(_firstRealPoseReceived && _firstMouseEventReceived)
+		if(_firstRealPoseReceived)
 		{
 			// Compute control command
 			computeCommand();
@@ -256,14 +256,14 @@ void MotionGenerator::backAndForthMotion()
 			if(currentTime-_initTime > _phaseDuration)
 			{
 				// Go to jerky motion phase
-				_perturbation = true;
-				_state = State::JERKY_MOTION;
-				_initTime = ros::Time::now().toSec();
-				_phaseDuration = _jerkyMotionDuration;
-				if(_useArduino)
-				{
-					sendValueArduino(1);
-				}
+				// _perturbation = true;
+				// _state = State::JERKY_MOTION;
+				// _initTime = ros::Time::now().toSec();
+				// _phaseDuration = _jerkyMotionDuration;
+				// if(_useArduino)
+				// {
+				// 	sendValueArduino(1);
+				// }
 			}
 			break;
 		}
