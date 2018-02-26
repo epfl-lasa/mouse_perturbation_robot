@@ -38,8 +38,20 @@ void DSObstacleAvoidance::obsModulationEllipsoid(Eigen::Vector3f x, Eigen::Vecto
 
 	if(bContour)
 	{
-		
+		Eigen::Vector3f contour_dir;
+		contour_dir = _basisMatrix.col(2);
+		contour_dir.normalize();
+
+		if(xd.dot(_basisMatrix.col(0))>0)
+		{
+			bContour = false;
+			_modulatedVel = _modulationMatrix*xd;
+		}
+		else
+			_modulatedVel = contour_dir*(xd.norm());
 	}
+	else
+		_modulatedVel = _modulationMatrix*xd;
 }
 
 void DSObstacleAvoidance::computeBasisMatrix(Eigen::Vector3f x)
