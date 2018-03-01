@@ -60,7 +60,6 @@ Eigen::Vector3f DSObstacleAvoidance::obsModulationEllipsoid(Eigen::Vector3f x, E
 		_modulatedVel = _modulationMatrix*xd;
 	
 	_obs._bContour = bContour;
-	// ROS_INFO_STREAM("Output " << _modulatedVel);
 
 	return _modulatedVel;
 }
