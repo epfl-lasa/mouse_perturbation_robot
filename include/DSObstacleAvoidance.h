@@ -23,10 +23,16 @@ class DSObstacleAvoidance
 
 	public:
 
-		DSObstacleAvoidance(Obstacle obs);
+		DSObstacleAvoidance();
 
-		void obsModulationEllipsoid(Eigen::Vector3f x, Eigen::Vector3f xd, bool bContour);
+		void setObstacle(Obstacle &obs);
+
+		Eigen::Vector3f obsModulationEllipsoid(Eigen::Vector3f x, Eigen::Vector3f xd, bool bContour);
+
+	private:
 
 		void computeBasisMatrix(Eigen::Vector3f x);
 
 };
+
+#endif

@@ -40,7 +40,7 @@ catkin_package(
 include_directories(include ${catkin_INCLUDE_DIRS})
 include_directories(${EIGEN3_INCLUDE_DIR})
 
-add_executable(motionGenerator src/motionGenerator_node.cpp src/MotionGenerator.cpp)
+add_executable(motionGenerator src/motionGenerator_node.cpp src/MotionGenerator.cpp src/DSObstacleAvoidance.cpp)
 target_link_libraries(motionGenerator ${catkin_LIBRARIES})
 add_dependencies(motionGenerator ${PROJECT_NAME}_gencpp)
 

@@ -9,6 +9,14 @@ MotionGenerator::MotionGenerator(ros::NodeHandle &n, double frequency): _n(n), _
 {
 	me = this;
 	ROS_INFO_STREAM("The motion generator node is created at: " << _n.getNamespace() << " with freq: " << frequency << "Hz");
+
+	//obstacle definition
+	_obs._a << 0.05f,0.05f,0.1f;
+	_obs._p.setConstant(1.0f);
+	_obs._safetyFactor = 1.0f;
+	_obs._tailEffect = false;
+	_obs._bContour = false;
+	_obs._rho = 1.0f;
 }
 
 
@@ -332,6 +340,10 @@ void MotionGenerator::backAndForthMotion()
 		}
 	}
 
+	_vd = obsModulator.obsModulationEllipsoid(_x, _vd, false);
+	// ROS_INFO_STREAM("Input " << _vd);
+	// ROS_INFO_STREAM("Output " << obsModulator.obsModulationEllipsoid(_x, _vd, false));
+
 	// Bound desired velocity
 	if (_vd.norm()>0.3f)
 	{
@@ -341,7 +353,9 @@ void MotionGenerator::backAndForthMotion()
 	// Desired quaternion to have the end effector looking down
 	_qd << 0.0f, 0.0f, 1.0f, 0.0f;
 
-	std::cerr << "trialCount: " << _trialCount << " target: " << (int) (_currentTarget) << " perturbation: " << (int) (_perturbation) << " perturbationCount: " << _perturbationCount << std::endl;
+	// std::cerr << "trialCount: " << _trialCount << " target: " << (int) (_currentTarget) << " perturbation: " << (int) (_perturbation) << " perturbationCount: " << _perturbationCount << std::endl;
+	// std::cerr << "target: " << _xd << " position: " << _x  << std::endl;
+	// std::cerr << "obstacle: " << _obs._x0  << std::endl;
 }
 
 
@@ -679,6 +693,8 @@ void MotionGenerator::updateRealPose(const geometry_msgs::Pose::ConstPtr& msg)
 		_x0 = _xd;
 		_xp = _x;
 		_vd.setConstant(0.0f);
+		_obs._x0 = _x0 + (_targetOffset.col(_currentTarget)+_targetOffset.col(_previousTarget))/2;
+		obsModulator.setObstacle(_obs);
 	}
 }
 

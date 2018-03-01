@@ -15,6 +15,7 @@
 #include "geometry_msgs/PointStamped.h"
 #include <rosserial_mbed/Adc.h>
 #include "MouseInterface.h"
+#include "DSObstacleAvoidance.h"
 
 #define MAX_XY_REL 350                    // Max mouse velocity [-]
 #define MIN_XY_REL 200                    // Min mouse velocity used as threshold [-]
@@ -109,6 +110,9 @@ class MotionGenerator
     State _state;                 // Current state phase
     Target _currentTarget;        // Current target
     Target _previousTarget;       // Previous target
+
+    Obstacle _obs;
+    DSObstacleAvoidance obsModulator;
 
   public:
     // Class constructor
