@@ -8,6 +8,7 @@ DSObstacleAvoidance::DSObstacleAvoidance()
 void DSObstacleAvoidance::setObstacle(Obstacle &obs)
 {
 	_obs = obs;
+	_obs._a = _obs._a*_obs._safetyFactor;
 	ROS_INFO_STREAM("Obstacle parameters recieved.");
 }
 

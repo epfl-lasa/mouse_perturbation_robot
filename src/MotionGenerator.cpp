@@ -11,9 +11,9 @@ MotionGenerator::MotionGenerator(ros::NodeHandle &n, double frequency): _n(n), _
 	ROS_INFO_STREAM("The motion generator node is created at: " << _n.getNamespace() << " with freq: " << frequency << "Hz");
 
 	//obstacle definition
-	_obs._a << 0.5f,0.15f,0.15f;
+	_obs._a << 0.5f,0.12f,0.12f;
 	_obs._p.setConstant(1.0f);
-	_obs._safetyFactor = 5.0f;
+	_obs._safetyFactor = 1.0f;
 	_obs._tailEffect = false;
 	_obs._bContour = false;
 	_obs._rho = 6.0f;
@@ -36,7 +36,7 @@ bool MotionGenerator::init()
   _xp.setConstant(0.0f);
   _mouseVelocity.setConstant(0.0f);
   _targetOffset.col(Target::A) << 0.0f, 0.0f, 0.0f;
-  _targetOffset.col(Target::B) << 0.0f, 0.8f, 0.0f;
+  _targetOffset.col(Target::B) << 0.0f, 0.9f, 0.0f;
   _targetOffset.col(Target::C) << -0.16f,0.25f,0.0f;
   _targetOffset.col(Target::D) << -0.16f,-0.25f,0.0f;
   _perturbationOffset.setConstant(0.0f);
