@@ -13,10 +13,10 @@ MotionGenerator::MotionGenerator(ros::NodeHandle &n, double frequency): _n(n), _
 	//obstacle definition
 	_obs._a << 0.5f,0.12f,0.12f;
 	_obs._p.setConstant(1.0f);
-	_obs._safetyFactor = 1.0f;
+	_obs._safetyFactor = 1.1f;
 	_obs._tailEffect = false;
 	_obs._bContour = false;
-	_obs._rho = 6.0f;
+	_obs._rho = 5.0f;
 }
 
 
@@ -36,7 +36,7 @@ bool MotionGenerator::init()
   _xp.setConstant(0.0f);
   _mouseVelocity.setConstant(0.0f);
   _targetOffset.col(Target::A) << 0.0f, 0.0f, 0.0f;
-  _targetOffset.col(Target::B) << 0.0f, 0.9f, 0.0f;
+  _targetOffset.col(Target::B) << 0.0f, 0.85f, 0.0f;
   _targetOffset.col(Target::C) << -0.16f,0.25f,0.0f;
   _targetOffset.col(Target::D) << -0.16f,-0.25f,0.0f;
   _perturbationOffset.setConstant(0.0f);
@@ -232,7 +232,9 @@ void MotionGenerator::backAndForthMotion()
 						sendValueArduino(2);
 					}
 				}
-
+				_obs._x0 = _x0 + (_targetOffset.col(_currentTarget)+_targetOffset.col(_previousTarget))/2;
+				_obs._x0(2) -= 0.05f;
+				obsModulator.setObstacle(_obs);
 				// Update motion and perturbation direction
 				Eigen::Vector3f temp;
 				temp << 0.0f,0.0f,1.0f;
@@ -253,7 +255,7 @@ void MotionGenerator::backAndForthMotion()
 			B.col(0) = _motionDirection;
 			B.col(1) = _perturbationDirection;
 			B.col(2) << 0.0f,0.0f,1.0f;
-			gains << 3, 10.0f, 30.0f;
+			gains << 6, 10.0f, 30.0f;
 
 			// Compute error and desired velocity
 			error = _xd-_x;

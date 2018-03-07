@@ -68,9 +68,15 @@ Eigen::Vector3f DSObstacleAvoidance::obsModulationEllipsoid(Eigen::Vector3f x, E
 void DSObstacleAvoidance::computeBasisMatrix(Eigen::Vector3f x)
 {
 	Eigen::Vector3f nv;
-	_gamma = ((x.array()/_obs._a.array()).pow(2*_obs._p.array())).sum();
+	_gamma = 0.0f;
+	for (int i = 0; i < 3; ++i)
+	{
+		_gamma += pow(x[i]/_obs._a[i],2*_obs._p[i]);
+		nv[i] = pow(2*(_obs._p[i]/_obs._a[i])*(x[i]/_obs._a[i]),2*_obs._p[i]-1);
+	}
+	// _gamma = ((x.array()/_obs._a.array()).pow(2*_obs._p.array())).sum();
 	_basisMatrix.setConstant(0.0f);
-	nv = (2*_obs._p.array()/_obs._a.array())*((x.array()/_obs._a.array()).pow(2*_obs._p.array()-1));
+	// nv = (2*_obs._p.array()/_obs._a.array())*((x.array()/_obs._a.array()).pow(2*_obs._p.array()-1))
 	ROS_INFO_STREAM("Gamma " << _gamma);
 
 	_basisMatrix.col(0) = nv;
