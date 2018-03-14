@@ -22,7 +22,7 @@
 #define PERTURBATION_VELOCITY 15.05f      // PErturbation velocity
 #define MAX_PERTURBATION_OFFSET 0.1f      // Max perturnation offset [m]
 #define MIN_PERTURBATION_OFFSET 0.05f     // Min perturbation offset [m]
-#define TARGET_TOLERANCE 0.04f            // Tolerance radius for reaching a target [m]
+#define TARGET_TOLERANCE 0.05f            // Tolerance radius for reaching a target [m]
 #define NB_TARGETS 4                      // Number of targets [-]
 
 class MotionGenerator 
@@ -97,6 +97,7 @@ class MotionGenerator
     bool _mouseControlledMotion;      // Monitor the use of mouse controlled motion
     bool _mouseInUse;                 // Monitor if the mouse is in use
     bool _useArduino;                 // Monitor the use of the Arduino
+    bool _perturbationFlag;           // Flag to set whether perturbation is true
 
     // Arduino related variables
     int farduino;

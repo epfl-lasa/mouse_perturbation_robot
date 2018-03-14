@@ -11,12 +11,12 @@ MotionGenerator::MotionGenerator(ros::NodeHandle &n, double frequency): _n(n), _
 	ROS_INFO_STREAM("The motion generator node is created at: " << _n.getNamespace() << " with freq: " << frequency << "Hz");
 
 	//obstacle definition
-	_obs._a << 0.5f,0.12f,0.12f;
-	_obs._p.setConstant(1.0f);
-	_obs._safetyFactor = 1.1f;
+	_obs._a << 0.5f,0.1f,0.12f;
+	_obs._p.setConstant(2.0f);
+	_obs._safetyFactor = 1.0f;
 	_obs._tailEffect = false;
 	_obs._bContour = false;
-	_obs._rho = 5.0f;
+	_obs._rho = 2.0f;
 }
 
 
@@ -43,7 +43,7 @@ bool MotionGenerator::init()
   _phaseDuration = 0.0f;
   _minCleanMotionDuration = 5.0f;
   _maxCleanMotionDuration = 12.0f;
-  _jerkyMotionDuration = 2.0f;
+  _jerkyMotionDuration = 0.4f;
   _initDuration = 10.0f;
   _pauseDuration = 0.2f;
   _reachedTime = 0.0f;
@@ -58,6 +58,7 @@ bool MotionGenerator::init()
   _mouseControlledMotion = false;
   _mouseInUse = false;
   _useArduino = false;
+  _perturbationFlag = false;
 
 	_state = State::INIT;
 	_previousTarget = Target::A;
@@ -255,25 +256,26 @@ void MotionGenerator::backAndForthMotion()
 			B.col(0) = _motionDirection;
 			B.col(1) = _perturbationDirection;
 			B.col(2) << 0.0f,0.0f,1.0f;
-			gains << 6, 10.0f, 30.0f;
+			gains << 10.0f, 10.0f, 30.0f;
 
 			// Compute error and desired velocity
 			error = _xd-_x;
 			L = gains.asDiagonal();
 			_vd = B*L*B.transpose()*error;
 
+			_vd = obsModulator.obsModulationEllipsoid(_x, _vd, false);
 			// Check for end of clean motion phase
-			if(currentTime-_initTime > _phaseDuration)
+			if(currentTime-_initTime > _phaseDuration and _perturbationFlag)
 			{
 				// Go to jerky motion phase
-				// _perturbation = true;
-				// _state = State::JERKY_MOTION;
-				// _initTime = ros::Time::now().toSec();
-				// _phaseDuration = _jerkyMotionDuration;
-				// if(_useArduino)
-				// {
-				// 	sendValueArduino(1);
-				// }
+				_perturbation = true;
+				_state = State::JERKY_MOTION;
+				_initTime = ros::Time::now().toSec();
+				_phaseDuration = _jerkyMotionDuration;
+				if(_useArduino)
+				{
+					sendValueArduino(1);
+				}
 			}
 			break;
 		}
@@ -292,6 +294,7 @@ void MotionGenerator::backAndForthMotion()
 		}
 		case State::JERKY_MOTION:
 		{
+			_perturbationDirection << 0.0f,0.0f,1.0f;
 			// Update perturbation offset based on perturbation velocity + apply saturation
 			_perturbationOffset += PERTURBATION_VELOCITY*(-1+2*(float)std::rand()/RAND_MAX)*_dt*_perturbationDirection;
 			if(_perturbationOffset.norm()>MAX_PERTURBATION_OFFSET)
@@ -312,8 +315,8 @@ void MotionGenerator::backAndForthMotion()
 			Eigen::Matrix3f B,L;
 			B.col(0) = _motionDirection;
 			B.col(1) = _perturbationDirection;
-			B.col(2) << 0.0f,0.0f,1.0f;
-			gains << 0, 10.0f, 30.0f;
+			B.col(2) << 1.0f,0.0f,0.0f;
+			gains << 0, 30.0f, 10.0f;
 
 			error = _xd-_x;
 			L = gains.asDiagonal();
@@ -342,7 +345,6 @@ void MotionGenerator::backAndForthMotion()
 		}
 	}
 
-	_vd = obsModulator.obsModulationEllipsoid(_x, _vd, false);
 	// ROS_INFO_STREAM("Input " << _vd);
 	// ROS_INFO_STREAM("Output " << obsModulator.obsModulationEllipsoid(_x, _vd, false));
 
@@ -470,7 +472,7 @@ void MotionGenerator::mouseControlledMotion()
 			if(currentTime-_initTime > _phaseDuration && _v.norm()> 1.0e-2f)
 			{
 				// Go to jerky motion phase
-        _perturbation = true;
+        		_perturbation = true;
 				_state = State::JERKY_MOTION;
 				_initTime = ros::Time::now().toSec();
 				_phaseDuration = _jerkyMotionDuration;			
@@ -531,7 +533,7 @@ void MotionGenerator::mouseControlledMotion()
 			{
 				// Update perturbation count + go to clean motion phase
 				_perturbationCount++;
-        _perturbation = false;
+        		_perturbation = false;
 				_perturbationOffset.setConstant(0.0f);
 				_state = State::CLEAN_MOTION;
 				_initTime = ros::Time::now().toSec();
