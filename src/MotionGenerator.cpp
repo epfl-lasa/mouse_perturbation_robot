@@ -374,6 +374,9 @@ void MotionGenerator::mouseControlledMotion()
 
 	Target temporaryTarget;
 
+	_obs._x0 = _x0 + (_targetOffset.col(Target::A)+_targetOffset.col(Target::B))/2;
+	_obs._x0(2) -= 0.05f;
+
 	switch (_state)
 	{
 		case State::INIT:
@@ -399,6 +402,9 @@ void MotionGenerator::mouseControlledMotion()
 					{
 						_currentTarget = Target::B;
 					}
+					_obs._a(0) = 0.5f;
+					_obs._a(1) = 0.1f;
+					obsModulator.setObstacle(_obs);
 				}
 				else
 				{
@@ -410,6 +416,9 @@ void MotionGenerator::mouseControlledMotion()
 					{
 						_currentTarget = Target::C;
 					}
+					_obs._a(0) = 0.1f;
+					_obs._a(1) = 0.5f;
+					obsModulator.setObstacle(_obs);
 				}
 
 				// If new target, updates previous one and compte new motion and perturbation direction
@@ -455,6 +464,7 @@ void MotionGenerator::mouseControlledMotion()
 				error = _xd-_x;
 				L = gains.asDiagonal();
 				_vd = B*L*B.transpose()*error;
+				_vd = obsModulator.obsModulationEllipsoid(_x, _vd, false);
 				_xp = _x;
 			}
 			else
@@ -500,17 +510,18 @@ void MotionGenerator::mouseControlledMotion()
 			break;
 		}
 		case State::JERKY_MOTION:
-    {
-			// Update perturbation offset based on perturbation velocity + apply saturation
-      _perturbationOffset += PERTURBATION_VELOCITY*(-1+2*(float)std::rand()/RAND_MAX)*_dt*_perturbationDirection;
-      if(_perturbationOffset.norm()>MAX_PERTURBATION_OFFSET)
-      {
-        _perturbationOffset *= MAX_PERTURBATION_OFFSET/_perturbationOffset.norm();
-      }
-      while(_perturbationOffset.norm()< MIN_PERTURBATION_OFFSET)
-      {
-        _perturbationOffset = MAX_PERTURBATION_OFFSET*(-1+2*(float)std::rand()/RAND_MAX)*_perturbationDirection;
-      }
+    	{
+	    	_perturbationDirection << 0.0f,0.0f,1.0f;
+				// Update perturbation offset based on perturbation velocity + apply saturation
+	      _perturbationOffset += PERTURBATION_VELOCITY*(-1+2*(float)std::rand()/RAND_MAX)*_dt*_perturbationDirection;
+	      if(_perturbationOffset.norm()>MAX_PERTURBATION_OFFSET)
+	      {
+	        _perturbationOffset *= MAX_PERTURBATION_OFFSET/_perturbationOffset.norm();
+	      }
+	      while(_perturbationOffset.norm()< MIN_PERTURBATION_OFFSET)
+	      {
+	        _perturbationOffset = MAX_PERTURBATION_OFFSET*(-1+2*(float)std::rand()/RAND_MAX)*_perturbationDirection;
+	      }
 
 			// Compute desired position by considering perturbation offset
 			_xd = _x+_perturbationOffset;
@@ -521,7 +532,7 @@ void MotionGenerator::mouseControlledMotion()
 			Eigen::Matrix3f B,L;
 			B.col(0) = _motionDirection;
 			B.col(1) = _perturbationDirection;
-			B.col(2) << 0.0f,0.0f,1.0f;
+			B.col(2) << 1.0f,0.0f,0.0f;
 			gains << 0.0f, 10.0f, 30.0f;
 
 			error = _xd-_x;
