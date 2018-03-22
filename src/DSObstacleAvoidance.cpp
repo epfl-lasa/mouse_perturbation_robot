@@ -9,7 +9,7 @@ void DSObstacleAvoidance::setObstacle(Obstacle &obs)
 {
 	_obs = obs;
 	_obs._a = _obs._a*_obs._safetyFactor;
-	ROS_INFO_STREAM("Obstacle parameters recieved.");
+	// ROS_INFO_STREAM("Obstacle parameters recieved.");
 }
 
 Eigen::Vector3f DSObstacleAvoidance::obsModulationEllipsoid(Eigen::Vector3f x, Eigen::Vector3f xd, bool bContour)
@@ -77,7 +77,7 @@ void DSObstacleAvoidance::computeBasisMatrix(Eigen::Vector3f x)
 	// _gamma = ((x.array()/_obs._a.array()).pow(2*_obs._p.array())).sum();
 	_basisMatrix.setConstant(0.0f);
 	// nv = (2*_obs._p.array()/_obs._a.array())*((x.array()/_obs._a.array()).pow(2*_obs._p.array()-1))
-	ROS_INFO_STREAM("Gamma " << _gamma);
+	// ROS_INFO_STREAM("Gamma " << _gamma);
 
 	_basisMatrix.col(0) = nv;
 	_basisMatrix.block(0,1,1,2) = nv.tail(2).transpose();

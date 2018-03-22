@@ -12,11 +12,11 @@ MotionGenerator::MotionGenerator(ros::NodeHandle &n, double frequency): _n(n), _
 
 	//obstacle definition
 	_obs._a << 0.5f,0.1f,0.12f;
-	_obs._p.setConstant(2.0f);
+	_obs._p.setConstant(1.0f);
 	_obs._safetyFactor = 1.0f;
 	_obs._tailEffect = false;
 	_obs._bContour = false;
-	_obs._rho = 2.0f;
+	_obs._rho = 1.0f;
 }
 
 
@@ -45,7 +45,7 @@ bool MotionGenerator::init()
   _maxCleanMotionDuration = 12.0f;
   _jerkyMotionDuration = 0.4f;
   _initDuration = 10.0f;
-  _pauseDuration = 0.2f;
+  _pauseDuration = 0.4f;
   _reachedTime = 0.0f;
   _trialCount = 0;
   _perturbationCount = 0;
@@ -59,6 +59,7 @@ bool MotionGenerator::init()
   _mouseInUse = false;
   _useArduino = false;
   _perturbationFlag = false;
+  _switchingTrajectories = false;
 
 	_state = State::INIT;
 	_previousTarget = Target::A;
@@ -81,11 +82,12 @@ bool MotionGenerator::init()
 	_pubDesiredOrientation = _n.advertise<geometry_msgs::Quaternion>("/lwr/joint_controllers/passive_ds_command_orient", 1);
 	
 	// Dynamic reconfigure definition
-	// _dynRecCallback = boost::bind(&MotionGenerator::dynamicReconfigureCallback, this, _1, _2);
-	// _dynRecServer.setCallback(_dynRecCallback);
+	_dynRecCallback = boost::bind(&MotionGenerator::dynamicReconfigureCallback, this, _1, _2);
+	_dynRecServer.setCallback(_dynRecCallback);
 
 	// Open file to save data
 	_outputFile.open ("src/mouse_perturbation_robot/informationKUKA.txt");
+	_outputFile << "NEW EXPERIMENT\n";
 	
 	// Catch CTRL+C event with the callback provided
 	signal(SIGINT,MotionGenerator::stopNodeCallback);
@@ -235,6 +237,14 @@ void MotionGenerator::backAndForthMotion()
 				}
 				_obs._x0 = _x0 + (_targetOffset.col(_currentTarget)+_targetOffset.col(_previousTarget))/2;
 				_obs._x0(2) -= 0.05f;
+
+				if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.5)
+				{
+					_obs._safetyFactor = 1.0f + 0.5f*(float)std::rand()/RAND_MAX;
+					_obs._rho = 1.0f + 7*(float)std::rand()/RAND_MAX;
+					ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);	
+				}
+
 				obsModulator.setObstacle(_obs);
 				// Update motion and perturbation direction
 				Eigen::Vector3f temp;
@@ -687,7 +697,7 @@ void MotionGenerator::publishData()
 
 void MotionGenerator::logData()
 {
-	_outputFile << ros::Time::now() << " " << _x(0) << " " << _x(1) << " " << _x(2) << " " << (int)(_currentTarget) << " " << (int) (_perturbation) << " " << _trialCount << " " << _perturbationCount << std::endl;
+	_outputFile << ros::Time::now() << " " << _x(0) << " " << _x(1) << " " << _x(2) << " " << (int)(_perturbationFlag) << " " << (int)(_switchingTrajectories) << " " << _obs._p << " " << _obs._safetyFactor << " " << _obs._rho << std::endl;
 }
 
 
@@ -757,24 +767,34 @@ Eigen::Matrix3f MotionGenerator::quaternionToRotationMatrix(Eigen::Vector4f q)
 }
 
 
-// void MotionGenerator::dynamicReconfigureCallback(foot_surgical_robot::footIsometricController_paramsConfig &config, uint32_t level)
-// {
-// 	ROS_INFO("Reconfigure request. Updatig the parameters ...");
+void MotionGenerator::dynamicReconfigureCallback(mouse_perturbation_robot::obstacleAvoidance_paramsConfig &config, uint32_t level)
+{
+	// ROS_INFO("Reconfigure Request: %d %s %s %f %f", 
+ //            config.obstacle_shape_param,
+ //            config.perturbation_flag?"True":"False",
+ //            config.random_trajectory_switching?"True":"False",
+ //            config.obstacle_safety_factor,
+ //            config.obstacle_rho);
 
-// 	_convergenceRate = config.convergenceRate;
-// 	_linearVelocityLimit = config.linearVelocityLimit;
-// 	_angularVelocityLimit = config.angularVelocityLimit;
-// 	_threeTranslationMode = config.threeTranslationMode;
-// 	_oneTranslationMode = config.oneTranslationMode;
-// 	_rcmMode = config.rcmMode;
-// 	_rcmLinearVelocityGain = config.rcmLinearVelocityGain;
-// 	_rcmAngularVelocityGain = config.rcmAngularVelocityGain;
-// 	_rcmDistanceGain = config.rcmDistanceGain;
-// 	_rcmMinimumDistance = config.rcmMinimumDistance;
-// }
+	_obs._p.setConstant(config.obstacle_shape_param);
+	_perturbationFlag = config.perturbation_flag;
+	_switchingTrajectories = config.random_trajectory_switching;
+
+	if (_switchingTrajectories)
+		ROS_WARN("Cannot change safety factor or rho if random switching is on");
+	else
+	{
+		_obs._safetyFactor = config.obstacle_safety_factor;
+		_obs._rho = config.obstacle_rho;
+	}
+	obsModulator.setObstacle(_obs);
+
+	_jerkyMotionDuration = config.jerky_motion_duration;
+	_pauseDuration = config.pause_duration;
+}
 
 
-void MotionGenerator::closeArduino() 
+void MotionGenerator::closeArduino()
 {
   close(farduino);
 }

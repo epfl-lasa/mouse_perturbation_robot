@@ -16,6 +16,7 @@
 #include <rosserial_mbed/Adc.h>
 #include "MouseInterface.h"
 #include "DSObstacleAvoidance.h"
+#include <mouse_perturbation_robot/obstacleAvoidance_paramsConfig.h>
 
 #define MAX_XY_REL 350                    // Max mouse velocity [-]
 #define MIN_XY_REL 200                    // Min mouse velocity used as threshold [-]
@@ -97,7 +98,8 @@ class MotionGenerator
     bool _mouseControlledMotion;      // Monitor the use of mouse controlled motion
     bool _mouseInUse;                 // Monitor if the mouse is in use
     bool _useArduino;                 // Monitor the use of the Arduino
-    bool _perturbationFlag;           // Flag to set whether perturbation is true
+    bool _perturbationFlag;           // Flag to set whether random perturbations occur
+    bool _switchingTrajectories;      // Flag to set whether the obstacle parameters can randomly change
 
     // Arduino related variables
     int farduino;
@@ -107,13 +109,16 @@ class MotionGenerator
     // Other variables
     static MotionGenerator* me;   // Pointer on the instance
     std::mutex _mutex;            // Mutex variable
-    std::ofstream _outputFile;    // File used to lig data
+    std::ofstream _outputFile;    // File used to log data
     State _state;                 // Current state phase
     Target _currentTarget;        // Current target
     Target _previousTarget;       // Previous target
 
     Obstacle _obs;
     DSObstacleAvoidance obsModulator;
+
+    dynamic_reconfigure::Server<mouse_perturbation_robot::obstacleAvoidance_paramsConfig> _dynRecServer;
+    dynamic_reconfigure::Server<mouse_perturbation_robot::obstacleAvoidance_paramsConfig>::CallbackType _dynRecCallback;
 
   public:
     // Class constructor
@@ -171,8 +176,8 @@ class MotionGenerator
     // Send value to arduino
     void sendValueArduino(uint8_t value);
 
-		// Dynamic reconfigure callback
-		// void dynamicReconfigureCallback(foot_surgical_robot::footIsometricController_paramsConfig &config, uint32_t level);
+	// Dynamic reconfigure callback
+	void dynamicReconfigureCallback(mouse_perturbation_robot::obstacleAvoidance_paramsConfig &config, uint32_t level);
 };
 
 

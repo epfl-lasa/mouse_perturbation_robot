@@ -27,7 +27,7 @@ generate_messages(
 
 
 # Generate dynamic reconfigure parameters
-generate_dynamic_reconfigure_options(cfg/mouseInterface_params.cfg)
+generate_dynamic_reconfigure_options(cfg/mouseInterface_params.cfg cfg/obstacleAvoidance_params.cfg)
 find_package(Eigen3 REQUIRED)
 
 catkin_package(
