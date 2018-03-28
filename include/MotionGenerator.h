@@ -89,6 +89,7 @@ class MotionGenerator
     uint32_t _trialCount;                             // Number of times a target was reached [-]
     uint32_t _perturbationCount;                      // Number of perturbation phases accomplished [-]
     uint8_t _lastMouseEvent;                          // Last mouse event
+    uint8_t _errorButtonCounter;                      // Counter for persistence of key press
 
     //Booleans
     bool _firstRealPoseReceived;      // Monitor the first robot pose update
@@ -100,6 +101,7 @@ class MotionGenerator
     bool _useArduino;                 // Monitor the use of the Arduino
     bool _perturbationFlag;           // Flag to set whether random perturbations occur
     bool _switchingTrajectories;      // Flag to set whether the obstacle parameters can randomly change
+    bool _errorButtonPressed;         // Monitor the keyboard
 
     // Arduino related variables
     int farduino;
@@ -178,6 +180,9 @@ class MotionGenerator
 
 	// Dynamic reconfigure callback
 	void dynamicReconfigureCallback(mouse_perturbation_robot::obstacleAvoidance_paramsConfig &config, uint32_t level);
+
+    // Detect keyboard presses
+    int getch();
 };
 
 

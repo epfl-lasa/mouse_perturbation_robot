@@ -50,6 +50,7 @@ bool MotionGenerator::init()
   _trialCount = 0;
   _perturbationCount = 0;
   _lastMouseEvent = mouse_perturbation_robot::MouseMsg::M_NONE;
+  _errorButtonCounter = 0;
 
   _firstRealPoseReceived = false;
   _firstMouseEventReceived = false;
@@ -60,6 +61,7 @@ bool MotionGenerator::init()
   _useArduino = false;
   _perturbationFlag = false;
   _switchingTrajectories = false;
+  _errorButtonPressed = false;
 
 	_state = State::INIT;
 	_previousTarget = Target::A;
@@ -113,6 +115,23 @@ bool MotionGenerator::init()
 	}
 }
 
+
+int MotionGenerator::getch()
+{
+	static struct termios oldt, newt;
+	tcgetattr( STDIN_FILENO, &oldt);           // save old settings
+	newt = oldt;
+	newt.c_lflag &= ~(ICANON);                 // disable buffering      
+	tcsetattr( STDIN_FILENO, TCSANOW, &newt);  // apply new settings
+
+	int c = getchar();  // read character (non-blocking)
+
+	tcsetattr( STDIN_FILENO, TCSANOW, &oldt);  // restore old settings
+
+	return c;
+}
+
+
 void MotionGenerator::run()
 {
 	srand (time(NULL));
@@ -128,6 +147,13 @@ void MotionGenerator::run()
 		{
 			// Compute control command
 			computeCommand();
+
+			// Start monitoring the keyboard
+			// int c = getch();
+			// if (c == 'a')
+			// {
+			// 	_errorButtonPressed = true;
+			// }
 
 			// Log data
 			logData();
@@ -697,7 +723,11 @@ void MotionGenerator::publishData()
 
 void MotionGenerator::logData()
 {
-	_outputFile << ros::Time::now() << " " << _x(0) << " " << _x(1) << " " << _x(2) << " " << (int)(_perturbationFlag) << " " << (int)(_switchingTrajectories) << " " << _obs._p << " " << _obs._safetyFactor << " " << _obs._rho << std::endl;
+	_outputFile << ros::Time::now() << " " << _x(0) << " " << _x(1) << " " << _x(2) << " " << (int)(_perturbationFlag) << " " << (int)(_switchingTrajectories) << " " << _obs._p << " " << _obs._safetyFactor << " " << _obs._rho << " " << (int)(_errorButtonPressed) << std::endl;
+	if (_errorButtonPressed)
+	{
+		_errorButtonPressed = false;
+	}
 }
 
 
