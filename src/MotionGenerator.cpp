@@ -121,7 +121,9 @@ int MotionGenerator::getch()
 	static struct termios oldt, newt;
 	tcgetattr( STDIN_FILENO, &oldt);           // save old settings
 	newt = oldt;
-	newt.c_lflag &= ~(ICANON);                 // disable buffering      
+	newt.c_lflag &= ~(ICANON);                 // disable buffering   
+	newt.c_cc[VMIN] = 0;
+	newt.c_cc[VTIME] = 0;   
 	tcsetattr( STDIN_FILENO, TCSANOW, &newt);  // apply new settings
 
 	int c = getchar();  // read character (non-blocking)
@@ -149,11 +151,12 @@ void MotionGenerator::run()
 			computeCommand();
 
 			// Start monitoring the keyboard
-			// int c = getch();
-			// if (c == 'a')
-			// {
-			// 	_errorButtonPressed = true;
-			// }
+			if (getch() == ' ')
+			{
+				_errorButtonPressed = true;
+				_errorButtonCounter = 0;
+				ROS_INFO_STREAM("Received key press");
+			}
 
 			// Log data
 			logData();
@@ -723,11 +726,13 @@ void MotionGenerator::publishData()
 
 void MotionGenerator::logData()
 {
-	_outputFile << ros::Time::now() << " " << _x(0) << " " << _x(1) << " " << _x(2) << " " << (int)(_perturbationFlag) << " " << (int)(_switchingTrajectories) << " " << _obs._p << " " << _obs._safetyFactor << " " << _obs._rho << " " << (int)(_errorButtonPressed) << std::endl;
-	if (_errorButtonPressed)
+	_outputFile << ros::Time::now() << " " << _x(0) << " " << _x(1) << " " << _x(2) << " " << (int)(_perturbationFlag) << " " << (int)(_switchingTrajectories) << " " << _obs._p(0) << " " << _obs._safetyFactor << " " << _obs._rho << " " << (int)(_errorButtonPressed) << std::endl;
+	if (_errorButtonPressed and _errorButtonCounter > 4)
 	{
 		_errorButtonPressed = false;
 	}
+	else
+		_errorButtonCounter++;
 }
 
 
