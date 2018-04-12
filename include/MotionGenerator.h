@@ -90,6 +90,7 @@ class MotionGenerator
     uint32_t _perturbationCount;                      // Number of perturbation phases accomplished [-]
     uint8_t _lastMouseEvent;                          // Last mouse event
     uint8_t _errorButtonCounter;                      // Counter for persistence of key press
+    uint8_t _eventLogger;                             // Stores event messages sent to arduino
 
     //Booleans
     bool _firstRealPoseReceived;      // Monitor the first robot pose update

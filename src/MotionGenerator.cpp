@@ -51,6 +51,7 @@ bool MotionGenerator::init()
   _perturbationCount = 0;
   _lastMouseEvent = mouse_perturbation_robot::MouseMsg::M_NONE;
   _errorButtonCounter = 0;
+  _eventLogger = 0;
 
   _firstRealPoseReceived = false;
   _firstMouseEventReceived = false;
@@ -58,7 +59,7 @@ bool MotionGenerator::init()
   _perturbation = false;
   _mouseControlledMotion = false;
   _mouseInUse = false;
-  _useArduino = false;
+  _useArduino = true;
   _perturbationFlag = false;
   _switchingTrajectories = false;
   _errorButtonPressed = false;
@@ -155,7 +156,10 @@ void MotionGenerator::run()
 			{
 				_errorButtonPressed = true;
 				_errorButtonCounter = 0;
-				ROS_INFO_STREAM("Received key press");
+				if (_useArduino)
+				{
+					sendValueArduino(1);
+				}
 			}
 
 			// Log data
@@ -313,7 +317,7 @@ void MotionGenerator::backAndForthMotion()
 				_phaseDuration = _jerkyMotionDuration;
 				if(_useArduino)
 				{
-					sendValueArduino(1);
+					sendValueArduino(8);
 				}
 			}
 			break;
@@ -527,7 +531,7 @@ void MotionGenerator::mouseControlledMotion()
 				_phaseDuration = _jerkyMotionDuration;			
 				if(_useArduino)
 				{
-					sendValueArduino(1);
+					sendValueArduino(8);
 				}
 			}
 			else if(currentTime-_initTime > _phaseDuration)
@@ -726,13 +730,24 @@ void MotionGenerator::publishData()
 
 void MotionGenerator::logData()
 {
-	_outputFile << ros::Time::now() << " " << _x(0) << " " << _x(1) << " " << _x(2) << " " << (int)(_perturbationFlag) << " " << (int)(_switchingTrajectories) << " " << _obs._p(0) << " " << _obs._safetyFactor << " " << _obs._rho << " " << (int)(_errorButtonPressed) << std::endl;
-	if (_errorButtonPressed and _errorButtonCounter > 4)
+	_outputFile << ros::Time::now() << " " << _x(0) << " " << _x(1) << " " << _x(2) << " " << (int)(_perturbationFlag) << " " << (int)(_switchingTrajectories) << " " 
+	<< _obs._p(0) << " " << _obs._safetyFactor << " " << _obs._rho << " " << (int)(_errorButtonPressed) << " " << (int)_eventLogger << std::endl;
+
+	if (_errorButtonPressed and _errorButtonCounter > 14)
 	{
 		_errorButtonPressed = false;
+		_errorButtonCounter = 0;
+		if (_useArduino)
+		{
+			sendValueArduino(0);
+		}
+	}
+	else if (_errorButtonPressed)
+	{
+		_errorButtonCounter++;
 	}
 	else
-		_errorButtonCounter++;
+		_eventLogger = 0;
 }
 
 
@@ -811,16 +826,44 @@ void MotionGenerator::dynamicReconfigureCallback(mouse_perturbation_robot::obsta
  //            config.obstacle_safety_factor,
  //            config.obstacle_rho);
 
-	_obs._p.setConstant(config.obstacle_shape_param);
 	_perturbationFlag = config.perturbation_flag;
 	_switchingTrajectories = config.random_trajectory_switching;
 
 	if (_switchingTrajectories)
-		ROS_WARN("Cannot change safety factor or rho if random switching is on");
+		ROS_WARN("Cannot change safety factor or rho if random switching is on or if a particular trajectory is chosen");
+	else if (config.trajectory_1)
+	{
+		_obs._safetyFactor = 1.0f;
+		_obs._rho = 1.0f;
+		if (_useArduino)
+		{
+			sendValueArduino(16);
+		}
+	}
+	else if (config.trajectory_2)
+	{
+		_obs._safetyFactor = 1.5f;
+		_obs._rho = 8.0f;
+		if (_useArduino)
+		{
+			sendValueArduino(32);
+		}
+	}
+	else if (config.trajectory_3)
+	{
+		_obs._p.setConstant(2.0f);
+		_obs._safetyFactor = 1.0f;
+		_obs._rho = 2.0f;
+		if (_useArduino)
+		{
+			sendValueArduino(64);
+		}
+	}
 	else
 	{
 		_obs._safetyFactor = config.obstacle_safety_factor;
 		_obs._rho = config.obstacle_rho;
+		_obs._p.setConstant(config.obstacle_shape_param);
 	}
 	obsModulator.setObstacle(_obs);
 
@@ -884,6 +927,7 @@ void MotionGenerator::sendValueArduino(uint8_t value)
 {
   write(farduino,&value,1);
   std::cout << "Arduino message " << (int)value << std::endl;
+  _eventLogger = value;
   if (value>0)
   {
     trigger_begin = ros::Time::now();
@@ -894,4 +938,3 @@ void MotionGenerator::sendValueArduino(uint8_t value)
     trigger_raised = false;
   }
 }
-
