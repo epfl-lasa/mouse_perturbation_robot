@@ -57,9 +57,9 @@ bool MotionGenerator::init()
   _firstMouseEventReceived = false;
   _stop = false;
   _perturbation = false;
-  _mouseControlledMotion = false;
+  _mouseControlledMotion = true;
   _mouseInUse = false;
-  _useArduino = true;
+  _useArduino = false;
   _perturbationFlag = false;
   _switchingTrajectories = false;
   _errorButtonPressed = false;
@@ -251,7 +251,7 @@ void MotionGenerator::backAndForthMotion()
 				_trialCount++;
 				_previousTarget = _currentTarget;
 
-				// Update target
+				// Update target and obstacle
 				if (_currentTarget == Target::A)
 				{	
 					_currentTarget = Target::B;
@@ -271,6 +271,7 @@ void MotionGenerator::backAndForthMotion()
 				_obs._x0 = _x0 + (_targetOffset.col(_currentTarget)+_targetOffset.col(_previousTarget))/2;
 				_obs._x0(2) -= 0.05f;
 
+				// Random change in trajectory parameters
 				if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.5)
 				{
 					_obs._safetyFactor = 1.0f + 0.5f*(float)std::rand()/RAND_MAX;
@@ -417,9 +418,6 @@ void MotionGenerator::mouseControlledMotion()
 
 	Target temporaryTarget;
 
-	_obs._x0 = _x0 + (_targetOffset.col(Target::A)+_targetOffset.col(Target::B))/2;
-	_obs._x0(2) -= 0.05f;
-
 	switch (_state)
 	{
 		case State::INIT:
@@ -437,7 +435,7 @@ void MotionGenerator::mouseControlledMotion()
 				// Update target from mouse input
 				if(fabs(_mouseVelocity(0))>fabs(_mouseVelocity(1)))
 				{
-					if(_mouseVelocity(0)>0.0f)
+					if(_mouseVelocity(0)<0.0f)
 					{
 						_currentTarget = Target::A;
 					}
@@ -445,37 +443,25 @@ void MotionGenerator::mouseControlledMotion()
 					{
 						_currentTarget = Target::B;
 					}
-					_obs._a(0) = 0.5f;
-					_obs._a(1) = 0.1f;
-					obsModulator.setObstacle(_obs);
-				}
-				else
-				{
-					if(_mouseVelocity(1)>0.0f)
-					{
-						_currentTarget = Target::D;
-					}
-					else
-					{
-						_currentTarget = Target::C;
-					}
-					_obs._a(0) = 0.1f;
-					_obs._a(1) = 0.5f;
-					obsModulator.setObstacle(_obs);
 				}
 
-				// If new target, updates previous one and compte new motion and perturbation direction
+				// If new target, updates previous one and compute new motion and perturbation direction.
+				// Also updates the relative location of the obstacle
 				if(_currentTarget != temporaryTarget)
 				{
 					_previousTarget = temporaryTarget;
 					
 					// Update motion and perturbation direction
+					
 					Eigen::Vector3f temp;
 					temp << 0.0f,0.0f,1.0f;
 					_motionDirection = _targetOffset.col(_currentTarget)-_targetOffset.col(_previousTarget);
 					_motionDirection.normalize();
 					_perturbationDirection = temp.cross(_motionDirection);
 					_perturbationDirection.normalize();
+					
+					_obs._x0 = _x0 + (_targetOffset.col(_currentTarget)+_targetOffset.col(_previousTarget))/2;
+					_obs._x0(2) -= 0.05f;
 				}
 
 				// Compute desired target position
@@ -489,11 +475,20 @@ void MotionGenerator::mouseControlledMotion()
 					_trialCount++;
 					_previousTarget = _currentTarget;
 
+					// Random change in trajectory parameters
+					if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.25)
+					{
+						_obs._safetyFactor = 1.0f + 0.5f*(float)std::rand()/RAND_MAX;
+						_obs._rho = 1.0f + 7*(float)std::rand()/RAND_MAX;
+						ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);	
+					}
+
 					// Update target
 					_reachedTime = ros::Time::now().toSec();
-					_state = State::PAUSE;
+					// _state = State::PAUSE;
 				}
 
+				obsModulator.setObstacle(_obs);
 				// Compute the gain matrix M = B*L*B'
 				// B is an orthogonal matrix containing the directions corrected
 				// L is a diagonal matrix defining the correction gains along the directions
@@ -501,7 +496,7 @@ void MotionGenerator::mouseControlledMotion()
 				B.col(0) = _motionDirection;
 				B.col(1) = _perturbationDirection;
 				B.col(2) << 0.0f,0.0f,1.0f;
-				gains << 3, 10.0f, 30.0f;
+				gains << 10.0f, 10.0f, 30.0f;
 
 				// Compute error and desired velocity
 				error = _xd-_x;
@@ -512,17 +507,46 @@ void MotionGenerator::mouseControlledMotion()
 			}
 			else
 			{
-				// Track the last position where the mouse was in use
-				Eigen::Matrix3f L;
-				gains << 3, 3, 3;
-				error = _xp-_x;
+				// Go to starting point
+
+				// Compute desired target position
+				_xd = _x0+_targetOffset.col(_previousTarget);
+				// Compute distance to target
+				float distance = (_xd-_x).norm();
+
+				if(distance < TARGET_TOLERANCE)
+				{
+					// Random change in trajectory parameters
+					if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.25)
+					{
+						_obs._safetyFactor = 1.0f + 0.5f*(float)std::rand()/RAND_MAX;
+						_obs._rho = 1.0f + 7*(float)std::rand()/RAND_MAX;
+						ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);	
+					}
+
+					// Update target
+					_reachedTime = ros::Time::now().toSec();
+					// _state = State::PAUSE;
+				}
+
+				obsModulator.setObstacle(_obs);
+
+				Eigen::Matrix3f B,L;
+				B.col(0) = _motionDirection;
+				B.col(1) = _perturbationDirection;
+				B.col(2) << 0.0f,0.0f,1.0f;
+				gains << 10.0f, 10.0f, 30.0f;
+
+				// Compute error and desired velocity
+				error = _xd-_x;
 				L = gains.asDiagonal();
-				_vd = L*error;
+				_vd = B*L*B.transpose()*error;
+				_vd = obsModulator.obsModulationEllipsoid(_x, _vd, false);
 
 			}
 
 			// Check for end of clean motion phase
-			if(currentTime-_initTime > _phaseDuration && _v.norm()> 1.0e-2f)
+			if(currentTime-_initTime > _phaseDuration and _v.norm()> 1.0e-2f and _perturbationFlag)
 			{
 				// Go to jerky motion phase
         		_perturbation = true;
@@ -555,16 +579,16 @@ void MotionGenerator::mouseControlledMotion()
 		case State::JERKY_MOTION:
     	{
 	    	_perturbationDirection << 0.0f,0.0f,1.0f;
-				// Update perturbation offset based on perturbation velocity + apply saturation
-	      _perturbationOffset += PERTURBATION_VELOCITY*(-1+2*(float)std::rand()/RAND_MAX)*_dt*_perturbationDirection;
-	      if(_perturbationOffset.norm()>MAX_PERTURBATION_OFFSET)
-	      {
-	        _perturbationOffset *= MAX_PERTURBATION_OFFSET/_perturbationOffset.norm();
-	      }
-	      while(_perturbationOffset.norm()< MIN_PERTURBATION_OFFSET)
-	      {
-	        _perturbationOffset = MAX_PERTURBATION_OFFSET*(-1+2*(float)std::rand()/RAND_MAX)*_perturbationDirection;
-	      }
+			// Update perturbation offset based on perturbation velocity + apply saturation
+			_perturbationOffset += PERTURBATION_VELOCITY*(-1+2*(float)std::rand()/RAND_MAX)*_dt*_perturbationDirection;
+			if(_perturbationOffset.norm()>MAX_PERTURBATION_OFFSET)
+			{
+				_perturbationOffset *= MAX_PERTURBATION_OFFSET/_perturbationOffset.norm();
+			}
+			while(_perturbationOffset.norm()< MIN_PERTURBATION_OFFSET)
+			{
+				_perturbationOffset = MAX_PERTURBATION_OFFSET*(-1+2*(float)std::rand()/RAND_MAX)*_perturbationDirection;
+			}
 
 			// Compute desired position by considering perturbation offset
 			_xd = _x+_perturbationOffset;
@@ -576,7 +600,7 @@ void MotionGenerator::mouseControlledMotion()
 			B.col(0) = _motionDirection;
 			B.col(1) = _perturbationDirection;
 			B.col(2) << 1.0f,0.0f,0.0f;
-			gains << 0.0f, 10.0f, 30.0f;
+			gains << 0, 30.0f, 10.0f;
 
 			error = _xd-_x;
 			L = gains.asDiagonal();
@@ -613,9 +637,6 @@ void MotionGenerator::mouseControlledMotion()
 
 	// Desired quaternion to have the end effector looking down
 	_qd << 0.0f, 0.0f, 1.0f, 0.0f;
-
-  std::cerr << "Current target: " << (int) (_currentTarget) << " Previous target: " << (int) (_previousTarget) << " perturbation: " << (int) (_perturbation) << " mouse in use: "<< _mouseInUse << std::endl;
-  std::cerr << " perturbationDirection: " << _perturbationDirection.transpose() << " speed: " << _v.norm() <<std::endl;
 }
 
 
