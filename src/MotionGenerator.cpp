@@ -152,15 +152,15 @@ void MotionGenerator::run()
 			computeCommand();
 
 			// Start monitoring the keyboard
-			if (getch() == ' ')
-			{
-				_errorButtonPressed = true;
-				_errorButtonCounter = 0;
-				if (_useArduino)
-				{
-					sendValueArduino(1);
-				}
-			}
+			// if (getch() == ' ')
+			// {
+			// 	_errorButtonPressed = true;
+			// 	_errorButtonCounter = 0;
+			// 	if (_useArduino)
+			// 	{
+			// 		sendValueArduino(1);
+			// 	}
+			// }
 
 			// Log data
 			logData();
@@ -318,7 +318,7 @@ void MotionGenerator::backAndForthMotion()
 				_phaseDuration = _jerkyMotionDuration;
 				if(_useArduino)
 				{
-					sendValueArduino(8);
+					sendValueArduino(255);
 				}
 			}
 			break;
@@ -378,7 +378,7 @@ void MotionGenerator::backAndForthMotion()
 				_phaseDuration = _minCleanMotionDuration+(_maxCleanMotionDuration-_minCleanMotionDuration)*((float)std::rand()/RAND_MAX);
 				if(_useArduino)
 				{
-					sendValueArduino(0);
+					sendValueArduino(255);
 				}
 			}
 			break;
@@ -435,13 +435,21 @@ void MotionGenerator::mouseControlledMotion()
 				// Update target from mouse input
 				if(fabs(_mouseVelocity(0))>fabs(_mouseVelocity(1)))
 				{
-					if(_mouseVelocity(0)<0.0f)
+					if(_mouseVelocity(0)>0.0f)
 					{
 						_currentTarget = Target::A;
+						if(_useArduino)
+						{
+							sendValueArduino(2);
+						}
 					}
 					else
 					{
 						_currentTarget = Target::B;
+						if(_useArduino)
+						{
+							sendValueArduino(4);
+						}
 					}
 				}
 
@@ -473,15 +481,21 @@ void MotionGenerator::mouseControlledMotion()
 				{
 					// Target is reached 
 					_trialCount++;
-					_previousTarget = _currentTarget;
 
 					// Random change in trajectory parameters
-					if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.25)
+					if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.25 and _previousTarget != _currentTarget)
 					{
 						_obs._safetyFactor = 1.0f + 0.5f*(float)std::rand()/RAND_MAX;
 						_obs._rho = 1.0f + 7*(float)std::rand()/RAND_MAX;
 						ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);	
 					}
+
+					if (_useArduino)
+					{
+						sendValueArduino(0);
+					}
+
+					_previousTarget = _currentTarget;
 
 					// Update target
 					_reachedTime = ros::Time::now().toSec();
@@ -517,16 +531,37 @@ void MotionGenerator::mouseControlledMotion()
 				if(distance < TARGET_TOLERANCE)
 				{
 					// Random change in trajectory parameters
-					if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.25)
+					if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.25 and _previousTarget != _currentTarget)
 					{
 						_obs._safetyFactor = 1.0f + 0.5f*(float)std::rand()/RAND_MAX;
 						_obs._rho = 1.0f + 7*(float)std::rand()/RAND_MAX;
 						ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);	
 					}
 
+					if (_useArduino)
+					{
+						sendValueArduino(0);
+					}
+
+					_currentTarget = _previousTarget;
 					// Update target
 					_reachedTime = ros::Time::now().toSec();
 					// _state = State::PAUSE;
+				}
+
+				if (_previousTarget == Target::A)
+				{
+					if(_useArduino)
+					{
+						sendValueArduino(3);
+					}
+				}
+				else
+				{
+					if(_useArduino)
+					{
+						sendValueArduino(5);
+					}
 				}
 
 				obsModulator.setObstacle(_obs);
@@ -555,7 +590,7 @@ void MotionGenerator::mouseControlledMotion()
 				_phaseDuration = _jerkyMotionDuration;			
 				if(_useArduino)
 				{
-					sendValueArduino(8);
+					sendValueArduino(255);
 				}
 			}
 			else if(currentTime-_initTime > _phaseDuration)
@@ -618,7 +653,7 @@ void MotionGenerator::mouseControlledMotion()
 				_phaseDuration = 10+(20-10)*((float)std::rand()/RAND_MAX);
 				if(_useArduino)
 				{
-					sendValueArduino(0);
+					sendValueArduino(255);
 				}
 			}
 			break;
@@ -659,6 +694,10 @@ void MotionGenerator::processMouseEvents()
     filteredRelX = _msgMouse.filteredRelX;
     filteredRelY = _msgMouse.filteredRelY;
     newEvent = true;
+    if(_useArduino)
+    {
+    	sendValueArduino(8);
+    }
   }
   else
   {
@@ -754,21 +793,22 @@ void MotionGenerator::logData()
 	_outputFile << ros::Time::now() << " " << _x(0) << " " << _x(1) << " " << _x(2) << " " << (int)(_perturbationFlag) << " " << (int)(_switchingTrajectories) << " " 
 	<< _obs._p(0) << " " << _obs._safetyFactor << " " << _obs._rho << " " << (int)(_errorButtonPressed) << " " << (int)_eventLogger << std::endl;
 
-	if (_errorButtonPressed and _errorButtonCounter > 14)
-	{
-		_errorButtonPressed = false;
-		_errorButtonCounter = 0;
-		if (_useArduino)
-		{
-			sendValueArduino(0);
-		}
-	}
-	else if (_errorButtonPressed)
-	{
-		_errorButtonCounter++;
-	}
-	else
-		_eventLogger = 0;
+	// if (_errorButtonPressed and _errorButtonCounter > 14)
+	// {
+	// 	_errorButtonPressed = false;
+	// 	_errorButtonCounter = 0;
+	// 	if (_useArduino)
+	// 	{
+	// 		sendValueArduino(0);
+	// 	}
+	// }
+	// else if (_errorButtonPressed)
+	// {
+	// 	_errorButtonCounter++;
+	// }
+	// else
+	// 	_eventLogger = 0;
+	_eventLogger = 0;
 }
 
 
@@ -852,34 +892,34 @@ void MotionGenerator::dynamicReconfigureCallback(mouse_perturbation_robot::obsta
 
 	if (_switchingTrajectories)
 		ROS_WARN("Cannot change safety factor or rho if random switching is on or if a particular trajectory is chosen");
-	else if (config.trajectory_1)
-	{
-		_obs._safetyFactor = 1.0f;
-		_obs._rho = 1.0f;
-		if (_useArduino)
-		{
-			sendValueArduino(16);
-		}
-	}
-	else if (config.trajectory_2)
-	{
-		_obs._safetyFactor = 1.5f;
-		_obs._rho = 8.0f;
-		if (_useArduino)
-		{
-			sendValueArduino(32);
-		}
-	}
-	else if (config.trajectory_3)
-	{
-		_obs._p.setConstant(2.0f);
-		_obs._safetyFactor = 1.0f;
-		_obs._rho = 2.0f;
-		if (_useArduino)
-		{
-			sendValueArduino(64);
-		}
-	}
+	// else if (config.trajectory_1)
+	// {
+	// 	_obs._safetyFactor = 1.0f;
+	// 	_obs._rho = 1.0f;
+	// 	if (_useArduino)
+	// 	{
+	// 		sendValueArduino(16);
+	// 	}
+	// }
+	// else if (config.trajectory_2)
+	// {
+	// 	_obs._safetyFactor = 1.5f;
+	// 	_obs._rho = 8.0f;
+	// 	if (_useArduino)
+	// 	{
+	// 		sendValueArduino(32);
+	// 	}
+	// }
+	// else if (config.trajectory_3)
+	// {
+	// 	_obs._p.setConstant(2.0f);
+	// 	_obs._safetyFactor = 1.0f;
+	// 	_obs._rho = 2.0f;
+	// 	if (_useArduino)
+	// 	{
+	// 		sendValueArduino(64);
+	// 	}
+	// }
 	else
 	{
 		_obs._safetyFactor = config.obstacle_safety_factor;
