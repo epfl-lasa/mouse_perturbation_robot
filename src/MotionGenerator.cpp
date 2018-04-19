@@ -59,7 +59,7 @@ bool MotionGenerator::init()
   _perturbation = false;
   _mouseControlledMotion = true;
   _mouseInUse = false;
-  _useArduino = false;
+  _useArduino = true;
   _perturbationFlag = false;
   _switchingTrajectories = false;
   _errorButtonPressed = false;
@@ -438,18 +438,12 @@ void MotionGenerator::mouseControlledMotion()
 					if(_mouseVelocity(0)>0.0f)
 					{
 						_currentTarget = Target::A;
-						if(_useArduino)
-						{
-							sendValueArduino(2);
-						}
+						_eventLogger |= 1 << 1;
 					}
 					else
 					{
 						_currentTarget = Target::B;
-						if(_useArduino)
-						{
-							sendValueArduino(4);
-						}
+						_eventLogger |= 1 << 2;
 					}
 				}
 
@@ -483,16 +477,19 @@ void MotionGenerator::mouseControlledMotion()
 					_trialCount++;
 
 					// Random change in trajectory parameters
-					if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.25 and _previousTarget != _currentTarget)
+					if (_previousTarget != _currentTarget)
 					{
-						_obs._safetyFactor = 1.0f + 0.5f*(float)std::rand()/RAND_MAX;
-						_obs._rho = 1.0f + 7*(float)std::rand()/RAND_MAX;
-						ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);	
+						_eventLogger = 15;
+						if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.25)
+						{
+							_obs._safetyFactor = 1.0f + 0.5f*(float)std::rand()/RAND_MAX;
+							_obs._rho = 1.0f + 7*(float)std::rand()/RAND_MAX;
+							ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);	
+						}
 					}
-
-					if (_useArduino)
+					else
 					{
-						sendValueArduino(0);
+						_eventLogger = 0;
 					}
 
 					_previousTarget = _currentTarget;
@@ -528,40 +525,38 @@ void MotionGenerator::mouseControlledMotion()
 				// Compute distance to target
 				float distance = (_xd-_x).norm();
 
+				_eventLogger |= 1;
+
+				if (_previousTarget == Target::A)
+				{
+					_eventLogger |= 1 << 2;
+				}
+				else
+				{
+					_eventLogger |= 1 << 1;
+				}
+
 				if(distance < TARGET_TOLERANCE)
 				{
-					// Random change in trajectory parameters
-					if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.25 and _previousTarget != _currentTarget)
+					if (_previousTarget != _currentTarget)
 					{
-						_obs._safetyFactor = 1.0f + 0.5f*(float)std::rand()/RAND_MAX;
-						_obs._rho = 1.0f + 7*(float)std::rand()/RAND_MAX;
-						ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);	
+						_eventLogger = 15;
+						if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.25)
+						{
+							_obs._safetyFactor = 1.0f + 0.5f*(float)std::rand()/RAND_MAX;
+							_obs._rho = 1.0f + 7*(float)std::rand()/RAND_MAX;
+							ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);	
+						}
 					}
-
-					if (_useArduino)
+					else
 					{
-						sendValueArduino(0);
+						_eventLogger = 0;
 					}
 
 					_currentTarget = _previousTarget;
 					// Update target
 					_reachedTime = ros::Time::now().toSec();
 					// _state = State::PAUSE;
-				}
-
-				if (_previousTarget == Target::A)
-				{
-					if(_useArduino)
-					{
-						sendValueArduino(3);
-					}
-				}
-				else
-				{
-					if(_useArduino)
-					{
-						sendValueArduino(5);
-					}
 				}
 
 				obsModulator.setObstacle(_obs);
@@ -578,6 +573,11 @@ void MotionGenerator::mouseControlledMotion()
 				_vd = B*L*B.transpose()*error;
 				_vd = obsModulator.obsModulationEllipsoid(_x, _vd, false);
 
+			}
+
+			if(_useArduino)
+			{
+				sendValueArduino(_eventLogger);
 			}
 
 			// Check for end of clean motion phase
@@ -694,10 +694,6 @@ void MotionGenerator::processMouseEvents()
     filteredRelX = _msgMouse.filteredRelX;
     filteredRelY = _msgMouse.filteredRelY;
     newEvent = true;
-    if(_useArduino)
-    {
-    	sendValueArduino(8);
-    }
   }
   else
   {
@@ -741,23 +737,24 @@ void MotionGenerator::processCursorEvent(float relX, float relY, bool newEvent)
   	// otherwise mouse velocity is set to zero
     if(fabs(relX)>MIN_XY_REL)
     {
-      _mouseVelocity(0) = relX;
-      _mouseInUse = true;
+		_mouseVelocity(0) = relX;
+    	_eventLogger |= 1 << 3;
+      	_mouseInUse = true;
     }
     else
     {
     	_mouseVelocity(0) = 0.0f;
     }
 
-    if(fabs(relY)>MIN_XY_REL)
-    {
-      _mouseVelocity(1) = relY;
-      _mouseInUse = true;
-    }
-    else
-    {
-    	_mouseVelocity(1) = 0.0f;
-    } 
+    // if(fabs(relY)>MIN_XY_REL)
+    // {
+    //   _mouseVelocity(1) = relY;
+    //   _mouseInUse = true;
+    // }
+    // else
+    // {
+    // 	_mouseVelocity(1) = 0.0f;
+    // } 
   }
 }
 
@@ -987,8 +984,7 @@ void MotionGenerator::initArduino()
 void MotionGenerator::sendValueArduino(uint8_t value)
 {
   write(farduino,&value,1);
-  std::cout << "Arduino message " << (int)value << std::endl;
-  _eventLogger = value;
+  std::cout << "Arduino message: " << (int)value << std::endl;
   if (value>0)
   {
     trigger_begin = ros::Time::now();
