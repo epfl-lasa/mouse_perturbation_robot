@@ -79,13 +79,15 @@ class MotionGenerator
     Eigen::Vector3f _perturbationDirection;           // Direction of the perturbation offset (3x1)
     Eigen::Vector3f _motionDirection;                 // Direction of motion (3x1)
     double _initTime;                                 // Initial time for each phase [s]
-    double _reachedTime;                              // Time when reaching a target [s]        
+    double _reachedTime;                              // Time when reaching a target [s]
+    double _lastMouseTime;                            // Last time when a mouse command was received [s]  
     double _phaseDuration;                            // Duration of a phase [s]  
     double _pauseDuration;                            // Duration of the pause after reaching a target [s]
     double _minCleanMotionDuration;                   // Min duration of the clean motion phase [s]
     double _maxCleanMotionDuration;                   // Max duration of the clean motion phase [s]
     double _jerkyMotionDuration;                      // Duration of the jerky motion phase [s]
     double _initDuration;                             // Duration of the initial phase [s]
+    double _commandLagDuration;                       // Duration for lag between mouse command and robot response [s]
     uint32_t _trialCount;                             // Number of times a target was reached [-]
     uint32_t _perturbationCount;                      // Number of perturbation phases accomplished [-]
     uint8_t _lastMouseEvent;                          // Last mouse event

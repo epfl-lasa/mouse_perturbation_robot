@@ -13,10 +13,10 @@ MotionGenerator::MotionGenerator(ros::NodeHandle &n, double frequency): _n(n), _
 	//obstacle definition
 	_obs._a << 0.5f,0.1f,0.12f;
 	_obs._p.setConstant(1.0f);
-	_obs._safetyFactor = 1.0f;
+	_obs._safetyFactor = 1.1f;
 	_obs._tailEffect = false;
 	_obs._bContour = false;
-	_obs._rho = 1.0f;
+	_obs._rho = 1.1f;
 }
 
 
@@ -46,6 +46,7 @@ bool MotionGenerator::init()
   _jerkyMotionDuration = 0.4f;
   _initDuration = 10.0f;
   _pauseDuration = 0.4f;
+  _commandLagDuration = 0.3f;
   _reachedTime = 0.0f;
   _trialCount = 0;
   _perturbationCount = 0;
@@ -427,8 +428,12 @@ void MotionGenerator::mouseControlledMotion()
 		case State::CLEAN_MOTION:
 		{
 			// Check if mouse is in use
-			if(_mouseInUse)
+			if(_mouseInUse or currentTime - _lastMouseTime < _commandLagDuration)
 			{
+				if (_mouseInUse)
+				{
+					_lastMouseTime = ros::Time::now().toSec();
+				}
 				// Save current target
 				temporaryTarget = _currentTarget;
 
@@ -438,13 +443,20 @@ void MotionGenerator::mouseControlledMotion()
 					if(_mouseVelocity(0)>0.0f)
 					{
 						_currentTarget = Target::A;
-						_eventLogger |= 1 << 1;
 					}
 					else
 					{
 						_currentTarget = Target::B;
-						_eventLogger |= 1 << 2;
 					}
+				}
+
+				if (_currentTarget==Target::A)
+				{
+					_eventLogger |= 1 << 1;
+				}
+				else
+				{
+					_eventLogger |= 1 << 2;
 				}
 
 				// If new target, updates previous one and compute new motion and perturbation direction.
@@ -473,13 +485,13 @@ void MotionGenerator::mouseControlledMotion()
 				float distance = (_xd-_x).norm();
 				if(distance < TARGET_TOLERANCE)
 				{
-					// Target is reached 
-					_trialCount++;
+					// Target is reached
 
 					// Random change in trajectory parameters
 					if (_previousTarget != _currentTarget)
 					{
 						_eventLogger = 15;
+						_trialCount++;
 						if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.25)
 						{
 							_obs._safetyFactor = 1.0f + 0.5f*(float)std::rand()/RAND_MAX;
@@ -541,10 +553,11 @@ void MotionGenerator::mouseControlledMotion()
 					if (_previousTarget != _currentTarget)
 					{
 						_eventLogger = 15;
+						_trialCount++;
 						if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.25)
 						{
-							_obs._safetyFactor = 1.0f + 0.5f*(float)std::rand()/RAND_MAX;
-							_obs._rho = 1.0f + 7*(float)std::rand()/RAND_MAX;
+							_obs._safetyFactor = 1.1f + 0.4f*(float)std::rand()/RAND_MAX;
+							_obs._rho = 1.1f + 7*(float)std::rand()/RAND_MAX;
 							ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);	
 						}
 					}
@@ -744,6 +757,7 @@ void MotionGenerator::processCursorEvent(float relX, float relY, bool newEvent)
     else
     {
     	_mouseVelocity(0) = 0.0f;
+    	_eventLogger &= ~(1 << 3);
     }
 
     // if(fabs(relY)>MIN_XY_REL)
@@ -805,7 +819,6 @@ void MotionGenerator::logData()
 	// }
 	// else
 	// 	_eventLogger = 0;
-	_eventLogger = 0;
 }
 
 
@@ -846,6 +859,7 @@ void MotionGenerator::updateMouseData(const mouse_perturbation_robot::MouseMsg::
   if(!_firstMouseEventReceived && _msgMouse.event > 0)
   {
     _firstMouseEventReceived = true;
+    _lastMouseTime = ros::Time::now().toSec();
   }
 }
 
@@ -926,7 +940,7 @@ void MotionGenerator::dynamicReconfigureCallback(mouse_perturbation_robot::obsta
 	obsModulator.setObstacle(_obs);
 
 	_jerkyMotionDuration = config.jerky_motion_duration;
-	_pauseDuration = config.pause_duration;
+	_commandLagDuration = config.lag_duration;
 }
 
 
