@@ -285,7 +285,7 @@ void MotionGenerator::backAndForthMotion()
 				{
 					_obs._safetyFactor = 1.0f + 0.5f*(float)std::rand()/RAND_MAX;
 					_obs._rho = 1.0f + 7*(float)std::rand()/RAND_MAX;
-					ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);	
+					ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);
 				}
 
 				obsModulator.setObstacle(_obs);
@@ -500,6 +500,7 @@ void MotionGenerator::mouseControlledMotion()
 					{
 						_eventLogger = 15;
 						_trialCount++;
+						ROS_INFO_STREAM("Trial Count: " << _trialCount);
 						// if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.25)
 						// {
 						// 	_obs._safetyFactor = 1.0f + 0.5f*(float)std::rand()/RAND_MAX;
@@ -516,7 +517,7 @@ void MotionGenerator::mouseControlledMotion()
 								_resampleCount = 0;
   								std::random_shuffle(std::begin(parameterSampleArray), std::end(parameterSampleArray));
 							}
-							ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);
+							// ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);
 						}
 					}
 					else
@@ -574,6 +575,7 @@ void MotionGenerator::mouseControlledMotion()
 					{
 						_eventLogger = 15;
 						_trialCount++;
+						ROS_INFO_STREAM("Trial Count: " << _trialCount);
 						// if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.25)
 						// {
 						// 	_obs._safetyFactor = 1.0f + 0.5f*(float)std::rand()/RAND_MAX;
@@ -590,7 +592,7 @@ void MotionGenerator::mouseControlledMotion()
 								_resampleCount = 0;
   								std::random_shuffle(std::begin(parameterSampleArray), std::end(parameterSampleArray));
 							}
-							ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);
+							// ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);
 						}
 					}
 					else
