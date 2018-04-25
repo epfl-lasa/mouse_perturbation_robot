@@ -75,6 +75,7 @@ bool MotionGenerator::init()
 	_state = State::INIT;
 	_previousTarget = Target::A;
 	_currentTarget = Target::B;
+	_trialTarget = _currentTarget;
 
 	Eigen::Vector3f temp;
 	temp << 0.0f,0.0f,1.0f;
@@ -450,12 +451,10 @@ void MotionGenerator::mouseControlledMotion()
 					if(_mouseVelocity(0)>0.0f)
 					{
 						_currentTarget = Target::A;
-						// _previousTarget = Target::B;
 					}
 					else
 					{
 						_currentTarget = Target::B;
-						// _previousTarget = Target::A;
 					}
 				}
 
@@ -472,18 +471,18 @@ void MotionGenerator::mouseControlledMotion()
 				// Also updates the relative location of the obstacle
 				if(_currentTarget != temporaryTarget)
 				{
-					_previousTarget = temporaryTarget;
+					// _previousTarget = temporaryTarget;
 					
 					// Update motion and perturbation direction
 					
 					Eigen::Vector3f temp;
 					temp << 0.0f,0.0f,1.0f;
-					_motionDirection = _targetOffset.col(_currentTarget)-_targetOffset.col(_previousTarget);
+					_motionDirection = _targetOffset.col(_currentTarget)-_targetOffset.col(temporaryTarget);
 					_motionDirection.normalize();
 					_perturbationDirection = temp.cross(_motionDirection);
 					_perturbationDirection.normalize();
 					
-					_obs._x0 = _x0 + (_targetOffset.col(_currentTarget)+_targetOffset.col(_previousTarget))/2;
+					_obs._x0 = _x0 + (_targetOffset.col(_currentTarget)+_targetOffset.col(temporaryTarget))/2;
 					_obs._x0(2) -= 0.05f;
 				}
 
@@ -509,8 +508,8 @@ void MotionGenerator::mouseControlledMotion()
 						// }
 						if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.1)
 						{
-							_obs._safetyFactor = 1.0f + 0.5f*parameterSampleArray[_resampleCount/10]/9.0f;
-							_obs._rho = 1.0f + 7*parameterSampleArray[_resampleCount%10]/9.0f;
+							_obs._safetyFactor = 1.0f + 0.5f*(parameterSampleArray[_resampleCount]/10.0f)/9;
+							_obs._rho = 1.0f + 7*(parameterSampleArray[_resampleCount]%10)/9.0f;
 							_resampleCount++;
 							if (_resampleCount>99)
 							{
@@ -583,8 +582,8 @@ void MotionGenerator::mouseControlledMotion()
 						// }
 						if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.1)
 						{
-							_obs._safetyFactor = 1.0f + 0.5f*parameterSampleArray[_resampleCount/10]/9.0f;
-							_obs._rho = 1.0f + 7*parameterSampleArray[_resampleCount%10]/9.0f;
+							_obs._safetyFactor = 1.0f + 0.5f*(parameterSampleArray[_resampleCount]/10.0f)/9;
+							_obs._rho = 1.0f + 7*(parameterSampleArray[_resampleCount]%10)/9.0f;
 							_resampleCount++;
 							if (_resampleCount>99)
 							{
@@ -1031,7 +1030,7 @@ void MotionGenerator::initArduino()
 void MotionGenerator::sendValueArduino(uint8_t value)
 {
   write(farduino,&value,1);
-  std::cout << "Arduino message: " << (int)value << std::endl;
+  // std::cout << "Arduino message: " << (int)value << std::endl;
   if (value>0)
   {
     trigger_begin = ros::Time::now();

@@ -120,6 +120,7 @@ class MotionGenerator
     State _state;                 // Current state phase
     Target _currentTarget;        // Current target
     Target _previousTarget;       // Previous target
+    Target _trialTarget;       // Previous target
 
     Obstacle _obs;
     DSObstacleAvoidance obsModulator;
