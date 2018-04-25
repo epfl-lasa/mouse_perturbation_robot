@@ -53,6 +53,7 @@ bool MotionGenerator::init()
   _lastMouseEvent = mouse_perturbation_robot::MouseMsg::M_NONE;
   _errorButtonCounter = 0;
   _eventLogger = 0;
+  _resampleCount = 0;
 
   _firstRealPoseReceived = false;
   _firstMouseEventReceived = false;
@@ -64,6 +65,12 @@ bool MotionGenerator::init()
   _perturbationFlag = false;
   _switchingTrajectories = false;
   _errorButtonPressed = false;
+
+  for (int i = 0; i < 100; i++)
+  {
+  	parameterSampleArray[i] = i;
+  }
+  std::random_shuffle(std::begin(parameterSampleArray), std::end(parameterSampleArray));
 
 	_state = State::INIT;
 	_previousTarget = Target::A;
@@ -443,10 +450,12 @@ void MotionGenerator::mouseControlledMotion()
 					if(_mouseVelocity(0)>0.0f)
 					{
 						_currentTarget = Target::A;
+						// _previousTarget = Target::B;
 					}
 					else
 					{
 						_currentTarget = Target::B;
+						// _previousTarget = Target::A;
 					}
 				}
 
@@ -492,11 +501,23 @@ void MotionGenerator::mouseControlledMotion()
 					{
 						_eventLogger = 15;
 						_trialCount++;
-						if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.25)
+						// if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.25)
+						// {
+						// 	_obs._safetyFactor = 1.0f + 0.5f*(float)std::rand()/RAND_MAX;
+						// 	_obs._rho = 1.0f + 7*(float)std::rand()/RAND_MAX;
+						// 	ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);	
+						// }
+						if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.1)
 						{
-							_obs._safetyFactor = 1.0f + 0.5f*(float)std::rand()/RAND_MAX;
-							_obs._rho = 1.0f + 7*(float)std::rand()/RAND_MAX;
-							ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);	
+							_obs._safetyFactor = 1.0f + 0.5f*parameterSampleArray[_resampleCount/10]/9.0f;
+							_obs._rho = 1.0f + 7*parameterSampleArray[_resampleCount%10]/9.0f;
+							_resampleCount++;
+							if (_resampleCount>99)
+							{
+								_resampleCount = 0;
+  								std::random_shuffle(std::begin(parameterSampleArray), std::end(parameterSampleArray));
+							}
+							ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);
 						}
 					}
 					else
@@ -554,11 +575,23 @@ void MotionGenerator::mouseControlledMotion()
 					{
 						_eventLogger = 15;
 						_trialCount++;
-						if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.25)
+						// if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.25)
+						// {
+						// 	_obs._safetyFactor = 1.0f + 0.5f*(float)std::rand()/RAND_MAX;
+						// 	_obs._rho = 1.0f + 7*(float)std::rand()/RAND_MAX;
+						// 	ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);	
+						// }
+						if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.1)
 						{
-							_obs._safetyFactor = 1.1f + 0.4f*(float)std::rand()/RAND_MAX;
-							_obs._rho = 1.1f + 7*(float)std::rand()/RAND_MAX;
-							ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);	
+							_obs._safetyFactor = 1.0f + 0.5f*parameterSampleArray[_resampleCount/10]/9.0f;
+							_obs._rho = 1.0f + 7*parameterSampleArray[_resampleCount%10]/9.0f;
+							_resampleCount++;
+							if (_resampleCount>99)
+							{
+								_resampleCount = 0;
+  								std::random_shuffle(std::begin(parameterSampleArray), std::end(parameterSampleArray));
+							}
+							ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);
 						}
 					}
 					else

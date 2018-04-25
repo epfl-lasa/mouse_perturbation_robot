@@ -89,6 +89,7 @@ class MotionGenerator
     double _initDuration;                             // Duration of the initial phase [s]
     double _commandLagDuration;                       // Duration for lag between mouse command and robot response [s]
     uint32_t _trialCount;                             // Number of times a target was reached [-]
+    uint32_t _resampleCount;                          // Number of times parameters were resampled this epoch
     uint32_t _perturbationCount;                      // Number of perturbation phases accomplished [-]
     uint8_t _lastMouseEvent;                          // Last mouse event
     uint8_t _errorButtonCounter;                      // Counter for persistence of key press
@@ -108,6 +109,7 @@ class MotionGenerator
 
     // Arduino related variables
     int farduino;
+    int parameterSampleArray[100];
     bool trigger_raised;
     ros::Time trigger_begin;
     
