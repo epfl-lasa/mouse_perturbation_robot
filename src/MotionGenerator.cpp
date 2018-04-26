@@ -427,6 +427,8 @@ void MotionGenerator::mouseControlledMotion()
 
 	Target temporaryTarget;
 
+	uint8_t previousEvent = _eventLogger;
+
 	switch (_state)
 	{
 		case State::INIT:
@@ -622,7 +624,7 @@ void MotionGenerator::mouseControlledMotion()
 
 			}
 
-			if(_useArduino)
+			if(_useArduino and previousEvent!=_eventLogger)
 			{
 				sendValueArduino(_eventLogger);
 			}
