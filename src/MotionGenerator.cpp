@@ -428,6 +428,10 @@ void MotionGenerator::mouseControlledMotion()
 	Target temporaryTarget;
 
 	uint8_t previousEvent = _eventLogger;
+	if (_vd.norm()>0.05f)
+	{
+		_eventLogger |= 1 << 2;
+	}
 
 	switch (_state)
 	{
@@ -439,10 +443,16 @@ void MotionGenerator::mouseControlledMotion()
 		{
 			// Check if mouse is in use
 			if(_mouseInUse or currentTime - _lastMouseTime < _commandLagDuration)
-			{
+			{				
+				_eventLogger &= ~(1 << 3);
 				if (_mouseInUse)
 				{
 					_lastMouseTime = ros::Time::now().toSec();
+					_eventLogger |= 1 << 0;
+				}
+				else
+				{
+					_eventLogger |= 1 << 1;
 				}
 				// Save current target
 				temporaryTarget = _currentTarget;
@@ -458,15 +468,6 @@ void MotionGenerator::mouseControlledMotion()
 					{
 						_currentTarget = Target::B;
 					}
-				}
-
-				if (_currentTarget==Target::A)
-				{
-					_eventLogger |= 1 << 1;
-				}
-				else
-				{
-					_eventLogger |= 1 << 2;
 				}
 
 				// If new target, updates previous one and compute new motion and perturbation direction.
@@ -496,11 +497,11 @@ void MotionGenerator::mouseControlledMotion()
 				if(distance < TARGET_TOLERANCE)
 				{
 					// Target is reached
+					_eventLogger = 0;
 
 					// Random change in trajectory parameters
 					if (_previousTarget != _currentTarget)
 					{
-						_eventLogger = 15;
 						_trialCount++;
 						ROS_INFO_STREAM("Trial Count: " << _trialCount);
 						// if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.25)
@@ -521,10 +522,6 @@ void MotionGenerator::mouseControlledMotion()
 							}
 							// ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);
 						}
-					}
-					else
-					{
-						_eventLogger = 0;
 					}
 
 					_previousTarget = _currentTarget;
@@ -560,22 +557,13 @@ void MotionGenerator::mouseControlledMotion()
 				// Compute distance to target
 				float distance = (_xd-_x).norm();
 
-				_eventLogger |= 1;
-
-				if (_previousTarget == Target::A)
-				{
-					_eventLogger |= 1 << 2;
-				}
-				else
-				{
-					_eventLogger |= 1 << 1;
-				}
+				_eventLogger |= 1 << 3;
 
 				if(distance < TARGET_TOLERANCE)
 				{
+					_eventLogger = 0;
 					if (_previousTarget != _currentTarget)
 					{
-						_eventLogger = 15;
 						_trialCount++;
 						ROS_INFO_STREAM("Trial Count: " << _trialCount);
 						// if (_switchingTrajectories and (float)std::rand()/RAND_MAX>0.25)
@@ -596,10 +584,6 @@ void MotionGenerator::mouseControlledMotion()
 							}
 							// ROS_INFO_STREAM("Switching Trajectory parameters. Safety Factor: " << _obs._safetyFactor << "Rho: " << _obs._rho);
 						}
-					}
-					else
-					{
-						_eventLogger = 0;
 					}
 
 					_currentTarget = _previousTarget;
@@ -787,13 +771,11 @@ void MotionGenerator::processCursorEvent(float relX, float relY, bool newEvent)
     if(fabs(relX)>MIN_XY_REL)
     {
 		_mouseVelocity(0) = relX;
-    	_eventLogger |= 1 << 3;
       	_mouseInUse = true;
     }
     else
     {
     	_mouseVelocity(0) = 0.0f;
-    	_eventLogger &= ~(1 << 3);
     }
 
     // if(fabs(relY)>MIN_XY_REL)
